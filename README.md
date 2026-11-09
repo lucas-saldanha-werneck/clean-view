@@ -11,25 +11,13 @@ one-row section of that shared pane.
 The command is `/quiet` (`/quiet on`, `/quiet off`), while the mod, its button and its settings
 folder are called Clean View.
 
-This repo was first published as `quiet-tools` (GitHub redirects the old address). Lucas Saldanha
-Werneck's earlier private mod, which this one grew out of, had the same name, Clean View; it was
-never published, so there is nothing to migrate.
-
 ## Install
 
 At the prompt of a terminal Claude Code session:
 
 ```
+/plugin marketplace add lucas-saldanha-werneck/claude-plugins
 /plugin install clean-view@lucas-plugins
-```
-
-If you have not added the `lucas-plugins` marketplace yet, add it first with
-`/plugin marketplace add lucas-saldanha-werneck/claude-plugins`. You can also install from this repo
-alone:
-
-```
-/plugin marketplace add lucas-saldanha-werneck/clean-view
-/plugin install clean-view@clean-view
 ```
 
 From a shell, the same commands work with `claude plugin` in place of `/plugin`. `/plugin` does not
@@ -116,7 +104,7 @@ Both are also in `/config` ("Start with tool rows hidden", "Keep failed tool row
 /plugin uninstall clean-view@lucas-plugins
 ```
 
-## Limits and what was not tested
+## Limits
 
 - Built and tested on Claude Code 2.1.319. It needs a version with mods (hooks modules).
 - The tests draw the rows and the side-stack section on the `terminal` and `desktop` surfaces, with
@@ -133,6 +121,9 @@ The idea comes from the "Plain Answers" mod (Plain-English Claude Code) in the A
 (11:41, 9 Oct 2026). Lucas Saldanha Werneck built his own version for himself (Clean View) and uses it
 every day; this repo is its tool-row hiding part, cleaned up to stand alone. This code was written
 separately with Claude Code.
+
+This repo was first published as `quiet-tools` (GitHub redirects the old address). The earlier
+private mod had the same name, Clean View; it was never published, so there is nothing to migrate.
 
 ## License
 

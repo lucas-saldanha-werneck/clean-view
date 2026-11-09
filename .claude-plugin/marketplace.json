@@ -9,7 +9,7 @@
     {
       "name": "clean-view",
       "source": "./",
-      "description": "A switch that hides the tool rows in the transcript (Bash, Read, Edit and the rest) so you read only the conversation. Works alone or inside side-stack."
+      "description": "One switch (/quiet) that hides the tool rows, so you read only the conversation."
     }
   ]
 }
