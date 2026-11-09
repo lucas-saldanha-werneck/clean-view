@@ -63,6 +63,21 @@ at session start (and again a second later), at every `/quiet` or button press, 
 pane is drawn. While it draws its row there it sets its own flag `{ plugin: 'quiet-tools', key:
 'stacked' }` to true (false otherwise), which side-stack reads to hide its install hint.
 
+## Terminal and desktop app
+
+quiet-tools works the same in both: the tests draw every row it hides, the side-stack row and its
+button on the `terminal` and `desktop` surfaces, and run `/quiet` and the status line in a session on
+each. What differs:
+
+- **The "ctrl+b to run in background" pill** exists in the terminal only, so blanking it applies
+  there. The desktop app has no such pill; nothing replaces it and nothing is needed.
+- **The button** is `[ ● Quiet tools: ON ]` in the terminal and a native button in the desktop app.
+- **Showing every row again:** the terminal's ctrl+o transcript (and `--verbose`) tells the mod to
+  show every row in full. Where a surface does not say whether a row is expanded, the row stays
+  hidden while the switch is on, so in the desktop app use `/quiet off` to see the tool rows.
+- **The status line and the toast** are the engine's own calls, not drawn by the mod. The API docs
+  do not mark them terminal-only; how the desktop app shows them was not checked by hand.
+
 ## Settings
 
 The first session creates `~/.config/quiet-tools/config.json` (or
@@ -89,8 +104,6 @@ Both are also in `/config` ("Start with tool rows hidden", "Keep failed tool row
 - The tests draw the rows and the side-stack section on the `terminal` and `desktop` surfaces, with
   and without a stand-in for side-stack. Nobody has tried it by hand in the desktop app or on mobile
   yet.
-- The "ctrl+b to run in background" pill exists in the terminal only; there is nothing to blank
-  elsewhere.
 - Headless runs (`claude -p`) draw no rows, so the switch has nothing to hide there.
 - Tests: `claude plugin validate .` and `claude plugin test .` (CI runs both on Linux, macOS and
   Windows).
