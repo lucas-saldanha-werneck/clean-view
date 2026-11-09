@@ -15,8 +15,6 @@ export const LABEL_OFF = '○ Quiet tools: OFF'
 export const STATUS_ON = 'Tool rows hidden · /quiet off shows them'
 
 const enabledAtom = atom({ plugin: 'quiet-tools', key: 'enabled' } as const, false)
-// Written by the side-stack host only; this mod reads it.
-const hostAtom = atom({ plugin: 'side-stack', key: 'present' } as const, false)
 // Written by this mod: true while it draws its row into the side-stack pane.
 // side-stack reads it to hide its install hint.
 const stackedAtom = atom({ plugin: 'quiet-tools', key: 'stacked' } as const, false)
@@ -29,6 +27,8 @@ let optionStartOn = false
 let optionShowErrors = true
 let fileStartOn: boolean | null = null
 let fileShowErrors: boolean | null = null
+// The session id the switch was last loaded under (see resyncIfNewSession).
+let loadedSessionId: string | undefined
 
 const startOn = (): boolean => fileStartOn ?? optionStartOn
 const showErrors = (): boolean => fileShowErrors ?? optionShowErrors
@@ -102,14 +102,45 @@ async function hostCommandListed($: EngineInterface): Promise<boolean> {
   }
 }
 
-/** side-stack runs: its present flag is true AND its /stack command is listed (a flag alone may be stale). */
+/**
+ * side-stack runs: its /stack command is listed. That alone: its `present` flag is session
+ * state, gone after a /clear (new session id, no session.start), so it is not required.
+ */
 async function isStacked($: EngineInterface): Promise<boolean> {
-  try {
-    if ((await read($, hostAtom)) !== true) return false
-  } catch {
-    return false
-  }
   return hostCommandListed($)
+}
+
+// ---- A /clear: same process, new session id, no session.start -----------
+
+async function currentSessionId($: EngineInterface): Promise<string | undefined> {
+  try {
+    return await $.session.id()
+  } catch {
+    return undefined
+  }
+}
+
+/** True when the session id differs from the one the switch was loaded under. */
+async function isNewSession($: EngineInterface): Promise<boolean> {
+  const id = await currentSessionId($)
+  return id !== undefined && id !== loadedSessionId
+}
+
+/**
+ * After a /clear (or a hot reload, which resets module variables): reload the switch from
+ * $.store, pin the status line again, re-check side-stack and re-publish the stacked flag.
+ */
+async function resyncIfNewSession($: EngineInterface): Promise<void> {
+  const id = await currentSessionId($)
+  if (id === undefined || id === loadedSessionId) return
+  loadedSessionId = id
+  await restore($)
+  await syncStacked($)
+}
+
+/** From a render hook, which may not write state: resync just after the draw. */
+async function scheduleResync($: EngineInterface): Promise<void> {
+  if (await isNewSession($)) $.clock.after(0, () => void resyncIfNewSession($).catch(() => undefined))
 }
 
 /** Publishes the stacked flag from a live check. Never called while drawing (a render hook never writes). */
@@ -185,6 +216,7 @@ export const register: Register = (on, options) => {
     await seedSettings($)
     await loadSettings($)
     await restore($)
+    loadedSessionId = await currentSessionId($)
     await $.command.register({
       name: 'quiet',
       description: 'Hide or show the tool rows (no argument flips it)',
@@ -198,7 +230,18 @@ export const register: Register = (on, options) => {
     return next(e)
   })
 
+  // A /clear fires no session.start: catch the new session id on the next prompt or turn.
+  on('prompt.submit', async ($, e, next) => {
+    await resyncIfNewSession($)
+    return next(e)
+  }).catch(($, e, next) => next(e))
+  on('turn.start', async ($, e, next) => {
+    await resyncIfNewSession($)
+    return next(e)
+  }).catch(($, e, next) => next(e))
+
   on('command.run', { command: 'quiet' }, async ($, e) => {
+    await resyncIfNewSession($)
     await loadSettings($)
     const arg = e.args.trim().toLowerCase()
     if (arg !== '' && arg !== 'on' && arg !== 'off') return { text: 'Use /quiet on, /quiet off, or /quiet alone to flip it.' }
@@ -213,16 +256,19 @@ export const register: Register = (on, options) => {
 
   // Hide the tool rows.
   on('ui.render', { component: 'ToolUse' }, async ($, e, next) => {
+    await scheduleResync($)
     if (!(await isEnabled($)) || keepsShowing(e.props)) return next(e)
     const { Box } = $.ui.resolve(e)
     return <Box display="none" />
   })
   on('ui.render', { component: 'ToolResult' }, async ($, e, next) => {
+    await scheduleResync($)
     if (!(await isEnabled($)) || keepsShowing(e.props)) return next(e)
     const { Box } = $.ui.resolve(e)
     return <Box display="none" />
   })
   on('ui.render', { component: 'ToolGroup' }, async ($, e, next) => {
+    await scheduleResync($)
     if (!(await isEnabled($))) return next(e)
     const failed = e.props.calls.some(call => call.isErrored && !call.isInterrupted)
     if (keepsShowing({ isExpanded: e.props.isExpanded, isErrored: failed })) return next(e)
@@ -239,6 +285,7 @@ export const register: Register = (on, options) => {
   on('ui.render', { component: 'Pane', requestId: STACK_PANE }, async ($, e, next) => {
     const below = await next(e)
     try {
+      await scheduleResync($)
       const stacked = await isStacked($)
       // Drawing may not write state: the flag is put right just after, outside the draw.
       const published = await read($, stackedAtom)

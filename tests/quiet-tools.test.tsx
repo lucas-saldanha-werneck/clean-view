@@ -18,6 +18,8 @@ type World = {
   statuses: (string | undefined)[]
   toasts: string[]
   clock: ReturnType<typeof mock.clock>
+  /** What $.session.id() answers; a /clear changes it. */
+  sessionId: string
 }
 
 type Setup = {
@@ -36,6 +38,23 @@ const HOST: Plugin = {
   register: on => {
     on('session.start', async ($, e, next) => {
       await $.state.set({ plugin: 'side-stack', key: 'present' }, true)
+      await $.command.register({ name: 'stack', description: 'Open the Stack side pane' })
+      return next(e)
+    })
+    // present is session state: a /clear starts a new session id without session.start,
+    // and the flag reads false there. Modelled by dropping it when the session ends.
+    on('session.end', async ($, e, next) => {
+      await $.state.set({ plugin: 'side-stack', key: 'present' }, false)
+      return next(e)
+    })
+  },
+}
+
+/** A host whose present flag is gone (as after a /clear) but whose /stack command is listed. */
+const CMD_ONLY_HOST: Plugin = {
+  name: 'side-stack',
+  register: on => {
+    on('session.start', async ($, e, next) => {
       await $.command.register({ name: 'stack', description: 'Open the Stack side pane' })
       return next(e)
     })
@@ -81,7 +100,7 @@ async function stackedFlag($: Engine): Promise<boolean> {
 /** The world beneath the plugin: files, store, status line, toasts, and the engine's own rows. */
 async function boot($: Engine, on: On, setup: Setup = {}): Promise<World> {
   const files = { ...(setup.files ?? {}) }
-  const world: World = { writes: [], store: { ...(setup.store ?? {}) }, statuses: [], toasts: [], clock: mock.clock(on, { now: 1_000_000 }) }
+  const world: World = { writes: [], store: { ...(setup.store ?? {}) }, statuses: [], toasts: [], clock: mock.clock(on, { now: 1_000_000 }), sessionId: 's1' }
   mock.env(on, { HOME: '/home/u' })
   on('fs.exists', async (_$, e) => ({ value: posix((e as { path: string }).path) in files }) as never)
   on('fs.read', async (_$, e) => {
@@ -110,6 +129,10 @@ async function boot($: Engine, on: On, setup: Setup = {}): Promise<World> {
     return { value: undefined } as never
   })
   on('session.start', (_$, e) => ({ cwd: e.cwd }))
+  on('session.id', async () => ({ value: world.sessionId }) as never)
+  on('session.end', (_$, e) => ({ sessionId: e.sessionId }) as never)
+  on('prompt.submit', (_$, e) => e as never)
+  on('turn.start', (_$, e) => ({ turnId: e.turnId }))
   const commands: { name: string; description: string }[] = []
   on('command.register', (_$, e) => {
     commands.push({ name: e.name, description: e.description })
@@ -341,6 +364,55 @@ for (const surface of SURFACES) {
       await world.clock.advance(1200)
       expect(await stackedFlag($)).toBe(true)
       await quiet($, 'on')
+      expect(await stackedFlag($)).toBe(true)
+    })
+
+    test('a real /clear (session.end clear, new id, no session.start): the row is back in the stack and rows stay hidden', { plugins: [HOST, READER] }, async ($, on) => {
+      const world = await boot($, on, { surface })
+      await world.clock.advance(1200)
+      await quiet($, 'on')
+      expect((await paneTexts($, surface))[0]).toBe('Quiet tools ')
+      await $.session.end({ reason: 'clear', sessionId: 's1', resume: {} } as never)
+      world.sessionId = 's2'
+      const pinned = world.statuses.length
+      await $.prompt.submit({ text: 'hello' } as never)
+      await $.turn.start({ text: 'hello', turnId: 't2' })
+      const texts = await paneTexts($, surface)
+      expect(texts[0]).toBe('Quiet tools ')
+      expect(texts.some(one => one.includes('HOST-AND-OTHERS'))).toBe(true)
+      expect(await stackedFlag($)).toBe(true)
+      expect(await draw($, toolUse(), surface)).not.toContain('ROW')
+      expect(world.statuses.length > pinned).toBe(true)
+      expect(world.statuses.at(-1)).toBe(STATUS_ON)
+    })
+
+    test('after a /clear the switch is reloaded from $.store (another session turned it off)', { plugins: [HOST, READER] }, async ($, on) => {
+      const world = await boot($, on, { surface })
+      await quiet($, 'on')
+      await $.session.end({ reason: 'clear', sessionId: 's1', resume: {} } as never)
+      world.sessionId = 's2'
+      world.store.enabled = false
+      await $.turn.start({ text: 'hello', turnId: 't2' })
+      expect(await draw($, toolUse(), surface)).toBe('ROW Bash')
+      expect(world.statuses.at(-1)).toBe(undefined)
+    })
+
+    test('a draw right after a /clear, before any prompt, resyncs just after the draw', { plugins: [HOST, READER] }, async ($, on) => {
+      const world = await boot($, on, { surface })
+      await world.clock.advance(1200)
+      await quiet($, 'on')
+      await $.session.end({ reason: 'clear', sessionId: 's1', resume: {} } as never)
+      world.sessionId = 's2'
+      world.store.enabled = false
+      await draw($, toolUse(), surface)
+      await world.clock.advance(1)
+      expect(await draw($, toolUse(), surface)).toBe('ROW Bash')
+    })
+
+    test('the /stack command alone (no present flag) counts as side-stack running', { plugins: [CMD_ONLY_HOST, READER] }, async ($, on) => {
+      const world = await boot($, on, { surface })
+      await world.clock.advance(1200)
+      expect((await paneTexts($, surface))[0]).toBe('Quiet tools ')
       expect(await stackedFlag($)).toBe(true)
     })
   })

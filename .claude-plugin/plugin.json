@@ -1,6 +1,6 @@
 {
   "name": "quiet-tools",
-  "version": "0.2.1",
+  "version": "0.2.2",
   "description": "A switch that hides the tool rows in the transcript (Bash, Read, Edit and the rest) so you read only the conversation. Works alone or inside side-stack.",
   "author": {
     "name": "Lucas Saldanha Werneck",
