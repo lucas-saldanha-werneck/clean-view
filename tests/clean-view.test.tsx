@@ -498,3 +498,35 @@ describe('fillSlot', () => {
     expect(fillSlot(slot, 'SECTION')).toBe('SECTION')
   })
 })
+
+// The race seen on 2.1.319: after a real /clear, events can reach the mod under
+// the NEW session id BEFORE session state is emptied. A resync in that window
+// must not count once the state empties: tool rows stay hidden, and the next
+// event loads the switch again.
+for (const surface of SURFACES) {
+  test(`a resync made before the state empties at a /clear does not leave the switch off (${surface})`, async ($, on) => {
+    let state: Record<string, { value: unknown; version: number }> = {}
+    on('state.get', async (_$, e) => {
+      const a = e as { plugin: string; key: string }
+      return { value: state[`${a.plugin}.${a.key}`] ?? { value: undefined, version: 0 } } as never
+    })
+    on('state.set', async (_$, e) => {
+      const a = e as { plugin: string; key: string; value: unknown }
+      const version = (state[`${a.plugin}.${a.key}`]?.version ?? 0) + 1
+      state[`${a.plugin}.${a.key}`] = { value: a.value, version }
+      return { value: { isSet: true, version } } as never
+    })
+    const world = await boot($, on, { surface })
+    await quiet($, 'on')
+    expect(await draw($, toolUse(), surface)).not.toContain('ROW')
+    await $.session.end({ reason: 'clear', sessionId: 's1', resume: {} } as never)
+    world.sessionId = 's2'
+    await $.prompt.submit({ text: 'hello' } as never) // under the new id, state not emptied yet
+    state = {} // now the engine empties session state
+    expect(await draw($, toolUse(), surface)).not.toContain('ROW')
+    await $.turn.start({ text: 'hello', turnId: 't2' })
+    expect(state['clean-view.enabled']?.value).toBe(true)
+    expect(await draw($, toolUse(), surface)).not.toContain('ROW')
+    expect(world.statuses.at(-1)).toBe(STATUS_ON)
+  })
+}

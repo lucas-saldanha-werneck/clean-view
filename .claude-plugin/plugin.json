@@ -1,6 +1,6 @@
 {
   "name": "clean-view",
-  "version": "0.3.0",
+  "version": "0.3.1",
   "description": "A switch that hides the tool rows in the transcript (Bash, Read, Edit and the rest) so you read only the conversation. Works alone or inside side-stack.",
   "author": {
     "name": "Lucas Saldanha Werneck",

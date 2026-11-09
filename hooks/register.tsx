@@ -22,6 +22,12 @@ const enabledAtom = atom({ plugin: 'clean-view', key: 'enabled' } as const, fals
 // Written by this mod: true while it draws its row into the side-stack pane.
 // side-stack reads it to hide its install hint.
 const stackedAtom = atom({ plugin: 'clean-view', key: 'stacked' } as const, false)
+// The session id the switch was loaded under. Kept in state, not in the module:
+// on a real /clear, events can reach the mod under the new id BEFORE the state is
+// emptied (seen on 2.1.319), and a marker in the module would then say "loaded"
+// for a state that is gone. In state it vanishes with the switch, so the next
+// event loads again.
+const loadedForAtom = atom({ plugin: 'clean-view', key: 'loadedFor' } as const, '')
 // Plugin load order is unknown: look for the host soon after start, and once more a second later.
 const HOST_CHECKS_MS = [100, 1100]
 
@@ -31,8 +37,9 @@ let optionStartOn = false
 let optionShowErrors = true
 let fileStartOn: boolean | null = null
 let fileShowErrors: boolean | null = null
-// The session id the switch was last loaded under (see resyncIfNewSession).
-let loadedSessionId: string | undefined
+// The session watch: started once per process, it outlives a /clear.
+let watching = false
+const WATCH_MS = 1500
 
 const startOn = (): boolean => fileStartOn ?? optionStartOn
 const showErrors = (): boolean => fileShowErrors ?? optionShowErrors
@@ -90,6 +97,9 @@ async function loadSettings($: EngineInterface): Promise<void> {
 
 async function isEnabled($: EngineInterface): Promise<boolean> {
   try {
+    // Between a /clear and the resync the state is empty: draw from the saved
+    // choice, so the rows and the switch do not flip to "off" in that window.
+    if (await isNewSession($)) return await savedChoice($)
     return (await read($, enabledAtom)) === true
   } catch {
     return false
@@ -124,10 +134,18 @@ async function currentSessionId($: EngineInterface): Promise<string | undefined>
   }
 }
 
+async function loadedFor($: EngineInterface): Promise<string> {
+  try {
+    return await read($, loadedForAtom)
+  } catch {
+    return ''
+  }
+}
+
 /** True when the session id differs from the one the switch was loaded under. */
 async function isNewSession($: EngineInterface): Promise<boolean> {
   const id = await currentSessionId($)
-  return id !== undefined && id !== loadedSessionId
+  return id !== undefined && id !== (await loadedFor($))
 }
 
 /**
@@ -136,9 +154,12 @@ async function isNewSession($: EngineInterface): Promise<boolean> {
  */
 async function resyncIfNewSession($: EngineInterface): Promise<void> {
   const id = await currentSessionId($)
-  if (id === undefined || id === loadedSessionId) return
-  loadedSessionId = id
+  if (id === undefined || id === (await loadedFor($))) return
+  // The id is recorded only once the switch is back in state: a resync whose
+  // writes were refused (say, from a timer that runs as part of a drawing) is
+  // tried again on the next event or watch tick.
   await restore($)
+  await update($, loadedForAtom, () => id)
   await syncStacked($)
 }
 
@@ -190,14 +211,19 @@ async function flip($: EngineInterface): Promise<boolean> {
 }
 
 /** The person's last choice (in $.store) wins; with none yet, start_on decides. */
-async function restore($: EngineInterface): Promise<void> {
+/** The last choice from $.store, or the start_on setting when there is none. */
+async function savedChoice($: EngineInterface): Promise<boolean> {
   let saved: unknown
   try {
     saved = await $.store.get(STORE_KEY)
   } catch {
     saved = undefined
   }
-  const value = typeof saved === 'boolean' ? saved : startOn()
+  return typeof saved === 'boolean' ? saved : startOn()
+}
+
+async function restore($: EngineInterface): Promise<void> {
+  const value = await savedChoice($)
   await update($, enabledAtom, () => value)
   showStatus($, value)
 }
@@ -247,7 +273,20 @@ export const register: Register = (on, options) => {
     await seedSettings($)
     await loadSettings($)
     await restore($)
-    loadedSessionId = await currentSessionId($)
+    {
+      const id = await currentSessionId($)
+      if (id !== undefined) await update($, loadedForAtom, () => id)
+    }
+    if (!watching) {
+      try {
+        $.clock.every(WATCH_MS, () => {
+          void resyncIfNewSession($).catch(() => undefined)
+        })
+        watching = true
+      } catch {
+        // The next prompt, turn or /quiet resyncs it.
+      }
+    }
     await $.command.register({
       name: 'quiet',
       description: 'Hide or show the tool rows (no argument flips it)',
