@@ -3,12 +3,12 @@ import type { Engine, Plugin } from 'claude-code/testing'
 import type { On } from 'claude-code'
 
 import { CONFIG_EXAMPLE } from '../hooks/config-example'
-import { LABEL_OFF, LABEL_ON, STATUS_ON } from '../hooks/register'
+import { LABEL_OFF, LABEL_ON, SECTION_KEY, STATUS_ON, fillSlot } from '../hooks/register'
 
 // On Windows the engine resolves a drive-less absolute path onto the current
 // drive with backslashes (D:\home\u\...). Compare paths in POSIX form.
 const posix = (p: string): string => p.replace(/^[A-Za-z]:/, '').replace(/\\/g, '/')
-const CONFIG = '/home/u/.config/quiet-tools/config.json'
+const CONFIG = '/home/u/.config/clean-view/config.json'
 const SURFACES = ['terminal', 'desktop'] as const
 type Surface = (typeof SURFACES)[number]
 
@@ -29,6 +29,8 @@ type Setup = {
   store?: Record<string, unknown>
   /** The surface the session starts on. */
   surface?: Surface
+  /** side-stack (beneath) leaves an empty slot for this section between two others, as with `/stack order`. */
+  slot?: boolean
 }
 
 // A stand-in for the side-stack host. The kit loads an inline plugin from its
@@ -75,18 +77,18 @@ const STALE_HOST: Plugin = {
 // The engine knows which plugin registered a command; the event does not say,
 // so this stand-in names the owner from the command's name, as a marketplace
 // install shows it (name@marketplace).
-const OWNERS: Record<string, string> = { stack: 'side-stack', quiet: 'quiet-tools' }
+const OWNERS: Record<string, string> = { stack: 'side-stack', quiet: 'clean-view' }
 
-/** Another plugin reading quiet-tools' stacked flag, as side-stack does (the test's own $ has no state noun). */
+/** Another plugin reading clean-view' stacked flag, as side-stack does (the test's own $ has no state noun). */
 const READER: Plugin = {
   name: 'idea-shelf',
   register: on => {
     on('session.start', async ($, e, next) => {
-      await $.command.register({ name: 'qtstacked', description: 'test: read quiet-tools.stacked' })
+      await $.command.register({ name: 'qtstacked', description: 'test: read clean-view.stacked' })
       return next(e)
     })
     on('command.run', { command: 'qtstacked' }, async $ => {
-      const { value } = await $.state.get({ plugin: 'quiet-tools', key: 'stacked' })
+      const { value } = await $.state.get({ plugin: 'clean-view', key: 'stacked' })
       return { text: 'stacked=' + String(value ?? false) }
     })
   },
@@ -159,7 +161,16 @@ async function boot($: Engine, on: On, setup: Setup = {}): Promise<World> {
     return <Text>PILL[{e.props.hint}]</Text>
   })
   on('ui.render', { component: 'Pane', requestId: 'side-stack' }, ($, e) => {
-    const { Text } = $.ui.resolve(e)
+    const { Box, Text } = $.ui.resolve(e)
+    if (setup.slot === true) {
+      return (
+        <Box flexDirection="column">
+          <Box key="side-stack:plan-checklist"><Text>FIRST-SECTION</Text></Box>
+          <Box key="side-stack:slot:clean-view" />
+          <Box key="side-stack:idea-shelf"><Text>LAST-SECTION</Text></Box>
+        </Box>
+      )
+    }
     return <Text>HOST-AND-OTHERS</Text>
   })
   await $.session.start({ cwd: '/work', surface: setup.surface ?? 'terminal', isInteractive: true })
@@ -197,7 +208,7 @@ const progress = (): Row => ({
 /** The texts a row draws through the plugin, on one surface. */
 async function draw($: Engine, row: Row, surface: Surface = 'terminal'): Promise<string> {
   const requestId = String((row.props as { tool_use_id?: string }).tool_use_id ?? 'g1')
-  const ui = await $.ui.mount({ plugin: 'quiet-tools', surface, requestId, ...row } as never)
+  const ui = await $.ui.mount({ plugin: 'clean-view', surface, requestId, ...row } as never)
   const texts = (await ui.findAll({ type: 'Text' })).map(one => one.text)
   await ui.unmount()
   return texts.join('\n')
@@ -205,7 +216,7 @@ async function draw($: Engine, row: Row, surface: Surface = 'terminal'): Promise
 
 async function paneTexts($: Engine, surface: Surface = 'terminal'): Promise<string[]> {
   const ui = await $.ui.mount({
-    plugin: 'quiet-tools',
+    plugin: 'clean-view',
     surface,
     component: 'Pane',
     requestId: 'side-stack',
@@ -324,22 +335,22 @@ for (const surface of SURFACES) {
       expect(texts).toEqual(['HOST-AND-OTHERS'])
     })
 
-    test('with the host: a "Quiet tools" row with the switch, above the other sections', { plugins: [HOST] }, async ($, on) => {
+    test('with the host: a "Clean View" row with the switch, above the other sections', { plugins: [HOST] }, async ($, on) => {
       await boot($, on, { surface })
       const texts = await paneTexts($, surface)
-      expect(texts[0]).toBe('Quiet tools ')
+      expect(texts[0]).toBe('Clean View ')
       expect(texts.some(one => one.includes('HOST-AND-OTHERS'))).toBe(true)
       expect(texts.findIndex(one => one.includes('HOST-AND-OTHERS')) > 0).toBe(true)
       const ui = await $.ui.mount({
-        plugin: 'quiet-tools',
+        plugin: 'clean-view',
         surface,
         component: 'Pane',
         requestId: 'side-stack',
         props: { title: 'Stack', isFocused: false, bodyColumns: 44, placement: 'dock' } as never,
       })
-      expect(JSON.stringify(await ui.find({ key: 'quiet-tools-toggle' } as never))).toContain(LABEL_OFF)
-      await ui.press({ key: 'quiet-tools-toggle' } as never)
-      expect(JSON.stringify(await ui.find({ key: 'quiet-tools-toggle' } as never))).toContain(LABEL_ON)
+      expect(JSON.stringify(await ui.find({ key: 'clean-view-toggle' } as never))).toContain(LABEL_OFF)
+      await ui.press({ key: 'clean-view-toggle' } as never)
+      expect(JSON.stringify(await ui.find({ key: 'clean-view-toggle' } as never))).toContain(LABEL_ON)
       await ui.unmount()
       expect(await draw($, toolUse(), surface)).not.toContain('ROW')
     })
@@ -371,14 +382,14 @@ for (const surface of SURFACES) {
       const world = await boot($, on, { surface })
       await world.clock.advance(1200)
       await quiet($, 'on')
-      expect((await paneTexts($, surface))[0]).toBe('Quiet tools ')
+      expect((await paneTexts($, surface))[0]).toBe('Clean View ')
       await $.session.end({ reason: 'clear', sessionId: 's1', resume: {} } as never)
       world.sessionId = 's2'
       const pinned = world.statuses.length
       await $.prompt.submit({ text: 'hello' } as never)
       await $.turn.start({ text: 'hello', turnId: 't2' })
       const texts = await paneTexts($, surface)
-      expect(texts[0]).toBe('Quiet tools ')
+      expect(texts[0]).toBe('Clean View ')
       expect(texts.some(one => one.includes('HOST-AND-OTHERS'))).toBe(true)
       expect(await stackedFlag($)).toBe(true)
       expect(await draw($, toolUse(), surface)).not.toContain('ROW')
@@ -412,8 +423,47 @@ for (const surface of SURFACES) {
     test('the /stack command alone (no present flag) counts as side-stack running', { plugins: [CMD_ONLY_HOST, READER] }, async ($, on) => {
       const world = await boot($, on, { surface })
       await world.clock.advance(1200)
-      expect((await paneTexts($, surface))[0]).toBe('Quiet tools ')
+      expect((await paneTexts($, surface))[0]).toBe('Clean View ')
       expect(await stackedFlag($)).toBe(true)
+    })
+
+    test('side-stack left a slot for this section (an order was set): the section fills it, in place', { plugins: [HOST, READER] }, async ($, on) => {
+      await boot($, on, { surface, slot: true })
+      const texts = await paneTexts($, surface)
+      const first = texts.indexOf('FIRST-SECTION')
+      const mine = texts.indexOf('Clean View ')
+      const last = texts.indexOf('LAST-SECTION')
+      expect(first).toBe(0)
+      expect(mine > first).toBe(true)
+      expect(last > mine).toBe(true)
+      const ui = await $.ui.mount({
+        plugin: 'clean-view',
+        surface,
+        component: 'Pane',
+        requestId: 'side-stack',
+        props: { title: 'Stack', isFocused: false, bodyColumns: 44, placement: 'dock' } as never,
+      })
+      expect(await ui.find({ key: SECTION_KEY } as never)).toBeDefined()
+      expect(await ui.find({ key: 'side-stack:slot:clean-view' } as never)).toBeUndefined()
+      await ui.press({ key: 'clean-view-toggle' } as never)
+      expect(JSON.stringify(await ui.find({ key: 'clean-view-toggle' } as never))).toContain(LABEL_ON)
+      await ui.unmount()
+    })
+
+    test('no slot from side-stack: the section, keyed side-stack:clean-view, goes on top as before', { plugins: [HOST, READER] }, async ($, on) => {
+      await boot($, on, { surface })
+      const texts = await paneTexts($, surface)
+      expect(texts[0]).toBe('Clean View ')
+      expect(texts.indexOf('HOST-AND-OTHERS') > 0).toBe(true)
+      const ui = await $.ui.mount({
+        plugin: 'clean-view',
+        surface,
+        component: 'Pane',
+        requestId: 'side-stack',
+        props: { title: 'Stack', isFocused: false, bodyColumns: 44, placement: 'dock' } as never,
+      })
+      expect(await ui.find({ key: SECTION_KEY } as never)).toBeDefined()
+      await ui.unmount()
     })
   })
 }
@@ -431,5 +481,20 @@ describe('config file', () => {
     const world = await boot($, on, { files: { [CONFIG]: '{ "start_on": true }' } })
     await $.session.start({ cwd: '/work', surface: 'terminal', isInteractive: true })
     expect(world.writes).toEqual([])
+  })
+})
+
+describe('fillSlot', () => {
+  test('replaces the slot deep in a tree and leaves everything else as it was', () => {
+    const slot = { type: 'Box', props: { key: 'side-stack:slot:clean-view' }, children: [] }
+    const other = { type: 'Box', props: { key: 'side-stack:idea-shelf' }, children: ['x'] }
+    const tree = { type: 'Box', props: {}, children: [other, { type: 'Box', props: {}, children: [slot] }] }
+    const filled = fillSlot(tree, 'SECTION') as { children: unknown[] }
+    expect(filled.children[0]).toBe(other)
+    expect((filled.children[1] as { children: unknown[] }).children[0]).toBe('SECTION')
+    expect(tree.children[1]).toEqual({ type: 'Box', props: {}, children: [slot] })
+    expect(fillSlot(other, 'SECTION')).toBe(undefined)
+    expect(fillSlot(null, 'SECTION')).toBe(undefined)
+    expect(fillSlot(slot, 'SECTION')).toBe('SECTION')
   })
 })

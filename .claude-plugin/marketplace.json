@@ -1,5 +1,5 @@
 {
-  "name": "quiet-tools",
+  "name": "clean-view",
   "description": "A switch that hides the tool rows in the Claude Code transcript.",
   "owner": {
     "name": "Lucas Saldanha Werneck",
@@ -7,7 +7,7 @@
   },
   "plugins": [
     {
-      "name": "quiet-tools",
+      "name": "clean-view",
       "source": "./",
       "description": "A switch that hides the tool rows in the transcript (Bash, Read, Edit and the rest) so you read only the conversation. Works alone or inside side-stack."
     }

@@ -3,21 +3,25 @@ import type { EngineInterface, Register } from 'claude-code'
 
 import { CONFIG_EXAMPLE } from './config-example'
 
-// quiet-tools: a switch that hides the tool rows of the transcript (ToolUse,
+// clean-view: a switch that hides the tool rows of the transcript (ToolUse,
 // ToolResult, ToolGroup) and blanks the "ctrl+b to run in background" pill
 // (ToolProgress) while it is on. While it is off every hook passes the row on
 // untouched.
 
 export const STACK_PANE = 'side-stack'
+// side-stack protocol v4: the section's key, and the key of the empty slot side-stack leaves
+// for it when the person has set an order (`/stack order ...`).
+export const SECTION_KEY = 'side-stack:clean-view'
+export const SLOT_KEY = 'side-stack:slot:clean-view'
 export const STORE_KEY = 'enabled'
-export const LABEL_ON = '● Quiet tools: ON'
-export const LABEL_OFF = '○ Quiet tools: OFF'
-export const STATUS_ON = 'Tool rows hidden · /quiet off shows them'
+export const LABEL_ON = '● Clean View: ON'
+export const LABEL_OFF = '○ Clean View: OFF'
+export const STATUS_ON = 'Clean View: tool rows hidden · /quiet off shows them'
 
-const enabledAtom = atom({ plugin: 'quiet-tools', key: 'enabled' } as const, false)
+const enabledAtom = atom({ plugin: 'clean-view', key: 'enabled' } as const, false)
 // Written by this mod: true while it draws its row into the side-stack pane.
 // side-stack reads it to hide its install hint.
-const stackedAtom = atom({ plugin: 'quiet-tools', key: 'stacked' } as const, false)
+const stackedAtom = atom({ plugin: 'clean-view', key: 'stacked' } as const, false)
 // Plugin load order is unknown: look for the host soon after start, and once more a second later.
 const HOST_CHECKS_MS = [100, 1100]
 
@@ -45,12 +49,12 @@ async function home($: EngineInterface): Promise<string | undefined> {
 // POSIX /x, Windows C:\x or C:/x. A relative path would land in the session's folder.
 const isAbsolute = (p: string): boolean => p.startsWith('/') || /^[A-Za-z]:[\\/]/.test(p)
 
-/** $XDG_CONFIG_HOME/quiet-tools/config.json, else ~/.config/quiet-tools/config.json. */
+/** $XDG_CONFIG_HOME/clean-view/config.json, else ~/.config/clean-view/config.json. */
 async function settingsFile($: EngineInterface): Promise<string | undefined> {
   const xdg = await $.env.get('XDG_CONFIG_HOME')
   const h = await home($)
   const base = xdg !== undefined && isAbsolute(xdg) ? xdg : h !== undefined ? `${h}/.config` : undefined
-  const file = base === undefined ? undefined : `${base}/quiet-tools/config.json`
+  const file = base === undefined ? undefined : `${base}/clean-view/config.json`
   return file !== undefined && isAbsolute(file) ? file : undefined
 }
 
@@ -172,7 +176,7 @@ async function setEnabled($: EngineInterface, value: boolean): Promise<void> {
   }
   showStatus($, value)
   try {
-    $.ui.toast(value ? 'Quiet tools on: tool rows are hidden.' : 'Quiet tools off: tool rows show again.')
+    $.ui.toast(value ? 'Clean View on: tool rows are hidden.' : 'Clean View off: tool rows show again.')
   } catch {
     // No surface to show it on.
   }
@@ -204,6 +208,33 @@ function keepsShowing(props: { isExpanded?: boolean; isErrored?: boolean; isInte
   if (props.isExpanded === true) return true
   // Esc is the person's own doing, not an error worth showing.
   return showErrors() && props.isErrored === true && props.isInterrupted !== true
+}
+
+// ---- The side-stack slot (protocol v4) ------------------------------------
+
+type El = { type?: unknown; props?: Record<string, unknown>; children?: unknown }
+
+const isSlot = (node: unknown): boolean =>
+  node !== null && typeof node === 'object' && (node as El).props?.key === SLOT_KEY
+
+/**
+ * Returns a copy of `tree` with side-stack's empty slot for this section replaced by
+ * `section`, or undefined when the tree holds no such slot (then the section goes on top).
+ */
+export function fillSlot(tree: unknown, section: unknown): unknown {
+  if (isSlot(tree)) return section
+  const el = tree as El | null
+  if (el === null || typeof el !== 'object' || !Array.isArray(el.children)) return undefined
+  for (let i = 0; i < el.children.length; i++) {
+    const child: unknown = el.children[i]
+    const swapped = isSlot(child) ? section : fillSlot(child, section)
+    if (swapped !== undefined) {
+      const children = [...el.children]
+      children[i] = swapped
+      return { ...el, children }
+    }
+  }
+  return undefined
 }
 
 // ---- Hooks ---------------------------------------------------------------
@@ -251,7 +282,7 @@ export const register: Register = (on, options) => {
       value = arg === 'on'
       await setEnabled($, value)
     }
-    return { text: value ? 'Quiet tools is on: tool rows are hidden.' : 'Quiet tools is off: tool rows show.' }
+    return { text: value ? 'Clean View is on: tool rows are hidden.' : 'Clean View is off: tool rows show.' }
   })
 
   // Hide the tool rows.
@@ -293,12 +324,18 @@ export const register: Register = (on, options) => {
       if (!stacked) return below
       const { Box, Text, Button } = $.ui.resolve(e)
       const enabled = await isEnabled($)
+      const section = (
+        <Box key={SECTION_KEY} flexDirection="row">
+          <Text bold>Clean View </Text>
+          <Button key="clean-view-toggle" label={enabled ? LABEL_ON : LABEL_OFF} onPress={() => flip($)} />
+        </Box>
+      )
+      // side-stack may have left a slot for this section in the order the person chose.
+      const filled = fillSlot(below, section)
+      if (filled !== undefined) return filled as typeof below
       return (
         <Box flexDirection="column">
-          <Box flexDirection="row">
-            <Text bold>Quiet tools </Text>
-            <Button key="quiet-tools-toggle" label={enabled ? LABEL_ON : LABEL_OFF} onPress={() => flip($)} />
-          </Box>
+          {section}
           {below}
         </Box>
       )

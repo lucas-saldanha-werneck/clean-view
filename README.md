@@ -1,4 +1,4 @@
-# quiet-tools
+# clean-view
 
 A Claude Code mod with one switch: while it is on, the tool rows in the transcript (`Bash(...)`,
 `Read 3 files`, `Update(...)`, their results and the "ctrl+b to run in background" pill) are hidden,
@@ -8,12 +8,19 @@ Works alone or inside side-stack: on its own it is a command and a status line; 
 [side-stack](https://github.com/lucas-saldanha-werneck/side-stack) mod runs, the switch is also a
 one-row section of that shared pane.
 
+The command is `/quiet` (`/quiet on`, `/quiet off`), while the mod, its button and its settings
+folder are called Clean View.
+
+This repo was first published as `quiet-tools` (GitHub redirects the old address). Lucas Saldanha
+Werneck's earlier private mod, which this one grew out of, had the same name, Clean View; it was
+never published, so there is nothing to migrate.
+
 ## Install
 
 At the prompt of a terminal Claude Code session:
 
 ```
-/plugin install quiet-tools@lucas-plugins
+/plugin install clean-view@lucas-plugins
 ```
 
 If you have not added the `lucas-plugins` marketplace yet, add it first with
@@ -21,8 +28,8 @@ If you have not added the `lucas-plugins` marketplace yet, add it first with
 alone:
 
 ```
-/plugin marketplace add lucas-saldanha-werneck/quiet-tools
-/plugin install quiet-tools@quiet-tools
+/plugin marketplace add lucas-saldanha-werneck/clean-view
+/plugin install clean-view@clean-view
 ```
 
 From a shell, the same commands work with `claude plugin` in place of `/plugin`. `/plugin` does not
@@ -32,7 +39,7 @@ desktop app's local Code sessions.
 ## Use
 
 - `/quiet on` hides the tool rows, `/quiet off` shows them, `/quiet` alone flips the switch.
-- While it is on, a status line under the prompt says `Tool rows hidden · /quiet off shows them`, so
+- While it is on, a status line under the prompt says `Clean View: tool rows hidden · /quiet off shows them`, so
   you do not forget. Each flip also shows a short toast.
 - Your choice is saved and comes back in the next session and after a restart.
 - It starts off, until you turn it on (see `start_on` below to change that).
@@ -51,18 +58,23 @@ What stays visible while it is on:
 Claude Code shows separate panes as tabs, one at a time. The side-stack mod opens one shared pane so
 several mods can draw in it one under the other.
 
-- side-stack not running: quiet-tools opens no pane. You use `/quiet` and see the status line.
-- side-stack running: the side-stack pane also gets one row, `Quiet tools [● Quiet tools: ON]`
-  (or `○ Quiet tools: OFF`); pressing the button flips the switch. The other mods' sections stay
+- side-stack not running: clean-view opens no pane. You use `/quiet` and see the status line.
+- side-stack running: the side-stack pane also gets one row, `Clean View [● Clean View: ON]`
+  (or `○ Clean View: OFF`); pressing the button flips the switch. The other mods' sections stay
   beneath or above it. The order follows the order Claude Code loads the plugins in, which a mod
   cannot choose.
 
-quiet-tools counts side-stack as running when side-stack's `/stack` command is listed. It checks at
+clean-view counts side-stack as running when side-stack's `/stack` command is listed. It checks at
 session start (and again a second later), at every `/quiet` or button press, and each time the pane
-is drawn. While it draws its row there it sets its own flag `{ plugin: 'quiet-tools', key:
+is drawn. While it draws its row there it sets its own flag `{ plugin: 'clean-view', key:
 'stacked' }` to true (false otherwise), which side-stack reads to hide its install hint.
 
-After `/clear`, Claude Code goes on under a new session id without a new session start. quiet-tools
+Section order: by default the sections stack in the order Claude Code loads the plugins. When you
+set an order in side-stack (`/stack order ...`), side-stack leaves an empty slot keyed
+`side-stack:slot:clean-view` and Clean View draws its row (keyed `side-stack:clean-view`) in that
+slot; with no slot it goes on top of the sections loaded after it, as before.
+
+After `/clear`, Claude Code goes on under a new session id without a new session start. clean-view
 notices the new id at the next prompt, turn, `/quiet` or draw, reloads the switch from its saved
 value, pins the status line again and re-checks side-stack, so the row stays in the stack and hidden
 rows stay hidden. The tests model this (session end with reason `clear`, a new id, no session start)
@@ -71,13 +83,13 @@ retried by hand yet.
 
 ## Terminal and desktop app
 
-quiet-tools works the same in both: the tests draw every row it hides, the side-stack row and its
+clean-view works the same in both: the tests draw every row it hides, the side-stack row and its
 button on the `terminal` and `desktop` surfaces, and run `/quiet` and the status line in a session on
 each. What differs:
 
 - **The "ctrl+b to run in background" pill** exists in the terminal only, so blanking it applies
   there. The desktop app has no such pill; nothing replaces it and nothing is needed.
-- **The button** is `[ ● Quiet tools: ON ]` in the terminal and a native button in the desktop app.
+- **The button** is `[ ● Clean View: ON ]` in the terminal and a native button in the desktop app.
 - **Showing every row again:** the terminal's ctrl+o transcript (and `--verbose`) tells the mod to
   show every row in full. Where a surface does not say whether a row is expanded, the row stays
   hidden while the switch is on, so in the desktop app use `/quiet off` to see the tool rows.
@@ -86,8 +98,8 @@ each. What differs:
 
 ## Settings
 
-The first session creates `~/.config/quiet-tools/config.json` (or
-`$XDG_CONFIG_HOME/quiet-tools/config.json`) with every key set to `null`, which means the default.
+The first session creates `~/.config/clean-view/config.json` (or
+`$XDG_CONFIG_HOME/clean-view/config.json`) with every key set to `null`, which means the default.
 Plugin updates never rewrite that file.
 
 | Key | Default | What it does |
@@ -101,7 +113,7 @@ Both are also in `/config` ("Start with tool rows hidden", "Keep failed tool row
 ## Uninstall
 
 ```
-/plugin uninstall quiet-tools@lucas-plugins
+/plugin uninstall clean-view@lucas-plugins
 ```
 
 ## Limits and what was not tested
