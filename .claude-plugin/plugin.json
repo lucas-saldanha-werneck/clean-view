@@ -1,0 +1,28 @@
+{
+  "name": "quiet-tools",
+  "version": "0.1.0",
+  "description": "A switch that hides the tool rows in the transcript (Bash, Read, Edit and the rest) so you read only the conversation. Works alone or inside side-stack.",
+  "author": {
+    "name": "Lucas Saldanha Werneck",
+    "url": "https://github.com/lucas-saldanha-werneck"
+  },
+  "homepage": "https://github.com/lucas-saldanha-werneck/quiet-tools",
+  "repository": "https://github.com/lucas-saldanha-werneck/quiet-tools",
+  "license": "MIT",
+  "keywords": ["mod", "transcript", "tools", "quiet", "focus"],
+  "types": "./types/index.d.ts",
+  "userConfig": {
+    "start_on": {
+      "type": "boolean",
+      "title": "Start with tool rows hidden",
+      "description": "Hide tool rows from the first session, before you ever press the switch. Off by default. Once you use /quiet or the switch, your last choice is kept instead. The start_on key in ~/.config/quiet-tools/config.json, when true or false, wins over this.",
+      "default": false
+    },
+    "show_errors": {
+      "type": "boolean",
+      "title": "Keep failed tool rows visible",
+      "description": "While tool rows are hidden, still show a tool call that failed, and its error. On by default. The show_errors key in ~/.config/quiet-tools/config.json, when true or false, wins over this.",
+      "default": true
+    }
+  }
+}
