@@ -16,6 +16,7 @@ type World = {
   store: Record<string, unknown>
   statuses: (string | undefined)[]
   toasts: string[]
+  clock: ReturnType<typeof mock.clock>
 }
 
 type Setup = {
@@ -32,15 +33,52 @@ const HOST: Plugin = {
   register: on => {
     on('session.start', async ($, e, next) => {
       await $.state.set({ plugin: 'side-stack', key: 'present' }, true)
+      await $.command.register({ name: 'stack', description: 'Open the Stack side pane' })
       return next(e)
     })
   },
 }
 
+/** A stale host: its present flag says true, but its /stack command is not listed (removed, or a leftover). */
+const STALE_HOST: Plugin = {
+  name: 'side-stack',
+  register: on => {
+    on('session.start', async ($, e, next) => {
+      await $.state.set({ plugin: 'side-stack', key: 'present' }, true)
+      return next(e)
+    })
+  },
+}
+
+// The engine knows which plugin registered a command; the event does not say,
+// so this stand-in names the owner from the command's name, as a marketplace
+// install shows it (name@marketplace).
+const OWNERS: Record<string, string> = { stack: 'side-stack', quiet: 'quiet-tools' }
+
+/** Another plugin reading quiet-tools' stacked flag, as side-stack does (the test's own $ has no state noun). */
+const READER: Plugin = {
+  name: 'idea-shelf',
+  register: on => {
+    on('session.start', async ($, e, next) => {
+      await $.command.register({ name: 'qtstacked', description: 'test: read quiet-tools.stacked' })
+      return next(e)
+    })
+    on('command.run', { command: 'qtstacked' }, async $ => {
+      const { value } = await $.state.get({ plugin: 'quiet-tools', key: 'stacked' })
+      return { text: 'stacked=' + String(value ?? false) }
+    })
+  },
+}
+
+async function stackedFlag($: Engine): Promise<boolean> {
+  const ran = JSON.stringify(await $.command.run({ command: 'qtstacked', args: '' } as never))
+  return ran.includes('stacked=true')
+}
+
 /** The world beneath the plugin: files, store, status line, toasts, and the engine's own rows. */
 async function boot($: Engine, on: On, setup: Setup = {}): Promise<World> {
   const files = { ...(setup.files ?? {}) }
-  const world: World = { writes: [], store: { ...(setup.store ?? {}) }, statuses: [], toasts: [] }
+  const world: World = { writes: [], store: { ...(setup.store ?? {}) }, statuses: [], toasts: [], clock: mock.clock(on, { now: 1_000_000 }) }
   mock.env(on, { HOME: '/home/u' })
   on('fs.exists', async (_$, e) => ({ value: posix((e as { path: string }).path) in files }) as never)
   on('fs.read', async (_$, e) => {
@@ -69,7 +107,14 @@ async function boot($: Engine, on: On, setup: Setup = {}): Promise<World> {
     return { value: undefined } as never
   })
   on('session.start', (_$, e) => ({ cwd: e.cwd }))
-  on('command.register', (_$, e) => ({ value: { command: e.name } }))
+  const commands: { name: string; description: string }[] = []
+  on('command.register', (_$, e) => {
+    commands.push({ name: e.name, description: e.description })
+    return { value: { command: e.name } }
+  })
+  on('command.list', async () => ({
+    value: commands.map(c => ({ ...c, source: 'plugin', plugin: `${OWNERS[c.name] ?? 'unknown'}@lucas-plugins` })),
+  }) as never)
   // What the engine draws for each row, beneath the plugin.
   on('ui.render', { component: 'ToolUse' }, ($, e) => {
     const { Text } = $.ui.resolve(e)
@@ -290,5 +335,28 @@ describe('side-stack', () => {
     expect(JSON.stringify(await ui.find({ key: 'quiet-tools-toggle' } as never))).toContain(LABEL_ON)
     await ui.unmount()
     expect(await draw($, toolUse())).not.toContain('ROW')
+  })
+
+  test('a stale host flag with no /stack command listed: alone mode, no section, stacked false', { plugins: [STALE_HOST, READER] }, async ($, on) => {
+    const world = await boot($, on)
+    await world.clock.advance(1200)
+    expect(await paneTexts($)).toEqual(['HOST-AND-OTHERS'])
+    await quiet($, 'on')
+    expect(await stackedFlag($)).toBe(false)
+    expect(await draw($, toolUse())).not.toContain('ROW')
+  })
+
+  test('alone: the stacked flag stays false', { plugins: [READER] }, async ($, on) => {
+    const world = await boot($, on)
+    await world.clock.advance(1200)
+    expect(await stackedFlag($)).toBe(false)
+  })
+
+  test('with the host: the stacked flag turns true after the start checks and on a toggle', { plugins: [HOST, READER] }, async ($, on) => {
+    const world = await boot($, on)
+    await world.clock.advance(1200)
+    expect(await stackedFlag($)).toBe(true)
+    await quiet($, 'on')
+    expect(await stackedFlag($)).toBe(true)
   })
 })

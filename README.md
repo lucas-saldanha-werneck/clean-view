@@ -57,6 +57,12 @@ several mods can draw in it one under the other.
   beneath or above it. The order follows the order Claude Code loads the plugins in, which a mod
   cannot choose.
 
+quiet-tools counts side-stack as running only when side-stack's `present` flag is true and its
+`/stack` command is listed, so a leftover flag from a removed side-stack does not count. It checks
+at session start (and again a second later), at every `/quiet` or button press, and each time the
+pane is drawn. While it draws its row there it sets its own flag `{ plugin: 'quiet-tools', key:
+'stacked' }` to true (false otherwise), which side-stack reads to hide its install hint.
+
 ## Settings
 
 The first session creates `~/.config/quiet-tools/config.json` (or

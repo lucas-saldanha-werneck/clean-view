@@ -17,6 +17,11 @@ export const STATUS_ON = 'Tool rows hidden · /quiet off shows them'
 const enabledAtom = atom({ plugin: 'quiet-tools', key: 'enabled' } as const, false)
 // Written by the side-stack host only; this mod reads it.
 const hostAtom = atom({ plugin: 'side-stack', key: 'present' } as const, false)
+// Written by this mod: true while it draws its row into the side-stack pane.
+// side-stack reads it to hide its install hint.
+const stackedAtom = atom({ plugin: 'quiet-tools', key: 'stacked' } as const, false)
+// Plugin load order is unknown: look for the host soon after start, and once more a second later.
+const HOST_CHECKS_MS = [100, 1100]
 
 // Module variables start over on a hot reload; the switch itself lives in
 // $.state (survives a reload) and $.store (survives a restart).
@@ -87,12 +92,35 @@ async function isEnabled($: EngineInterface): Promise<boolean> {
   }
 }
 
-async function isStacked($: EngineInterface): Promise<boolean> {
+/** The /stack command is listed and side-stack added it (plugin may carry @marketplace). */
+async function hostCommandListed($: EngineInterface): Promise<boolean> {
   try {
-    return (await read($, hostAtom)) === true
+    const commands = await $.command.list()
+    return commands.some(c => c.name === 'stack' && c.plugin?.split('@')[0] === 'side-stack')
   } catch {
     return false
   }
+}
+
+/** side-stack runs: its present flag is true AND its /stack command is listed (a flag alone may be stale). */
+async function isStacked($: EngineInterface): Promise<boolean> {
+  try {
+    if ((await read($, hostAtom)) !== true) return false
+  } catch {
+    return false
+  }
+  return hostCommandListed($)
+}
+
+/** Publishes the stacked flag from a live check. Never called while drawing (a render hook never writes). */
+async function syncStacked($: EngineInterface): Promise<boolean> {
+  const value = await isStacked($)
+  try {
+    if ((await read($, stackedAtom)) !== value) await update($, stackedAtom, () => value)
+  } catch {
+    // Not published; the next check tries again.
+  }
+  return value
 }
 
 function showStatus($: EngineInterface, value: boolean): void {
@@ -104,6 +132,7 @@ function showStatus($: EngineInterface, value: boolean): void {
 }
 
 async function setEnabled($: EngineInterface, value: boolean): Promise<void> {
+  await syncStacked($)
   await update($, enabledAtom, () => value)
   try {
     await $.store.set(STORE_KEY, value)
@@ -161,6 +190,11 @@ export const register: Register = (on, options) => {
       description: 'Hide or show the tool rows (no argument flips it)',
       argumentHint: 'on|off',
     })
+    for (const ms of HOST_CHECKS_MS) {
+      $.clock.after(ms, () => {
+        void syncStacked($).catch(() => undefined)
+      })
+    }
     return next(e)
   })
 
@@ -205,7 +239,11 @@ export const register: Register = (on, options) => {
   on('ui.render', { component: 'Pane', requestId: STACK_PANE }, async ($, e, next) => {
     const below = await next(e)
     try {
-      if (!(await isStacked($))) return below
+      const stacked = await isStacked($)
+      // Drawing may not write state: the flag is put right just after, outside the draw.
+      const published = await read($, stackedAtom)
+      if (published !== stacked) $.clock.after(0, () => void syncStacked($).catch(() => undefined))
+      if (!stacked) return below
       const { Box, Text, Button } = $.ui.resolve(e)
       const enabled = await isEnabled($)
       return (

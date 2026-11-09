@@ -3,7 +3,8 @@
 declare module 'claude-code' {
   interface PluginState {
     // Whether tool rows are hidden now. Kept in $.store too, so it survives a restart.
-    'quiet-tools': { enabled: boolean }
+    // stacked: true while this mod draws its row into the side-stack pane (side-stack reads it).
+    'quiet-tools': { enabled: boolean; stacked: boolean }
     // Read only: the side-stack host sets this to true when it runs.
     'side-stack': { present: boolean }
   }
