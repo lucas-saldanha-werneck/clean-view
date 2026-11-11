@@ -17,7 +17,7 @@ At the prompt of a terminal Claude Code session:
 
 ```
 /plugin marketplace add lucas-saldanha-werneck/claude-plugins
-/plugin install clean-view@lucas-plugins
+/plugin install clean-view@lucas-tools
 ```
 
 From a shell, the same commands work with `claude plugin` in place of `/plugin`. `/plugin` does not
@@ -101,7 +101,7 @@ Both are also in `/config` ("Start with tool rows hidden", "Keep failed tool row
 ## Uninstall
 
 ```
-/plugin uninstall clean-view@lucas-plugins
+/plugin uninstall clean-view@lucas-tools
 ```
 
 ## Limits

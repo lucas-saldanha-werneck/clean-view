@@ -141,7 +141,7 @@ async function boot($: Engine, on: On, setup: Setup = {}): Promise<World> {
     return { value: { command: e.name } }
   })
   on('command.list', async () => ({
-    value: commands.map(c => ({ ...c, source: 'plugin', plugin: `${OWNERS[c.name] ?? 'unknown'}@lucas-plugins` })),
+    value: commands.map(c => ({ ...c, source: 'plugin', plugin: `${OWNERS[c.name] ?? 'unknown'}@lucas-tools` })),
   }) as never)
   // What the engine draws for each row, beneath the plugin.
   on('ui.render', { component: 'ToolUse' }, ($, e) => {

@@ -1,6 +1,6 @@
 {
   "name": "clean-view",
-  "version": "0.3.2",
+  "version": "0.3.3",
   "description": "One switch (/quiet) that hides the tool rows, so you read only the conversation.",
   "author": {
     "name": "Lucas Saldanha Werneck",
