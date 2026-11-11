@@ -3,7 +3,7 @@ import type { Engine, Plugin } from 'claude-code/testing'
 import type { On } from 'claude-code'
 
 import { CONFIG_EXAMPLE } from '../hooks/config-example'
-import { LABEL_OFF, LABEL_ON, SECTION_KEY, STATUS_ON, fillSlot } from '../hooks/register'
+import { LABEL_OFF, LABEL_ON, SECTION_KEY, fillSlot } from '../hooks/register'
 
 // On Windows the engine resolves a drive-less absolute path onto the current
 // drive with backslashes (D:\home\u\...). Compare paths in POSIX form.
@@ -284,10 +284,10 @@ for (const surface of SURFACES) {
   })
 
   describe(`/quiet (${surface})`, () => {
-    test('on, off, and no argument flips it; status line and toast follow', async ($, on) => {
+    test('on, off, and no argument flips it; a toast follows, no status line is pinned', async ($, on) => {
       const world = await boot($, on, { surface })
       expect(await quiet($, 'on')).toContain('hidden')
-      expect(world.statuses.at(-1)).toBe(STATUS_ON)
+      expect(world.statuses.at(-1)).toBe(undefined)
       expect(await quiet($, 'off')).toContain('show')
       expect(world.statuses.at(-1)).toBe(undefined)
       expect(await quiet($)).toContain('hidden')
@@ -309,7 +309,7 @@ for (const surface of SURFACES) {
     test('a saved "on" starts hidden in a new session, even with start_on off', async ($, on) => {
       const world = await boot($, on, { surface, store: { enabled: true } })
       expect(await draw($, toolUse(), surface)).not.toContain('ROW')
-      expect(world.statuses.at(-1)).toBe(STATUS_ON)
+      expect(world.statuses.at(-1)).toBe(undefined)
     })
 
     test('a saved "off" wins over start_on', { options: { start_on: true } }, async ($, on) => {
@@ -394,7 +394,7 @@ for (const surface of SURFACES) {
       expect(await stackedFlag($)).toBe(true)
       expect(await draw($, toolUse(), surface)).not.toContain('ROW')
       expect(world.statuses.length > pinned).toBe(true)
-      expect(world.statuses.at(-1)).toBe(STATUS_ON)
+      expect(world.statuses.at(-1)).toBe(undefined)
     })
 
     test('after a /clear the switch is reloaded from $.store (another session turned it off)', { plugins: [HOST, READER] }, async ($, on) => {
@@ -527,6 +527,6 @@ for (const surface of SURFACES) {
     await $.turn.start({ text: 'hello', turnId: 't2' })
     expect(state['clean-view.enabled']?.value).toBe(true)
     expect(await draw($, toolUse(), surface)).not.toContain('ROW')
-    expect(world.statuses.at(-1)).toBe(STATUS_ON)
+    expect(world.statuses.at(-1)).toBe(undefined)
   })
 }

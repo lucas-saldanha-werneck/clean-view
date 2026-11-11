@@ -16,7 +16,6 @@ export const SLOT_KEY = 'side-stack:slot:clean-view'
 export const STORE_KEY = 'enabled'
 export const LABEL_ON = '● Clean View: ON'
 export const LABEL_OFF = '○ Clean View: OFF'
-export const STATUS_ON = 'Clean View: tool rows hidden · /quiet off shows them'
 
 const enabledAtom = atom({ plugin: 'clean-view', key: 'enabled' } as const, false)
 // Written by this mod: true while it draws its row into the side-stack pane.
@@ -150,7 +149,7 @@ async function isNewSession($: EngineInterface): Promise<boolean> {
 
 /**
  * After a /clear (or a hot reload, which resets module variables): reload the switch from
- * $.store, pin the status line again, re-check side-stack and re-publish the stacked flag.
+ * $.store, re-check side-stack and re-publish the stacked flag.
  */
 async function resyncIfNewSession($: EngineInterface): Promise<void> {
   const id = await currentSessionId($)
@@ -179,9 +178,10 @@ async function syncStacked($: EngineInterface): Promise<boolean> {
   return value
 }
 
-function showStatus($: EngineInterface, value: boolean): void {
+/** No status line under the prompt: the toast at each flip is enough. Clears one an older version pinned. */
+function showStatus($: EngineInterface, _value: boolean): void {
   try {
-    $.ui.status(value ? STATUS_ON : undefined)
+    $.ui.status(undefined)
   } catch {
     // No surface to pin it on.
   }

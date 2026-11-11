@@ -4,7 +4,7 @@ A Claude Code mod with one switch: while it is on, the tool rows in the transcri
 `Read 3 files`, `Update(...)`, their results and the "ctrl+b to run in background" pill) are hidden,
 so you read only what you asked and what Claude answered. While it is off, nothing changes.
 
-Works alone or inside side-stack: on its own it is a command and a status line; when the
+Works alone or inside side-stack: on its own it is a command and a toast; when the
 [side-stack](https://github.com/lucas-saldanha-werneck/side-stack) mod runs, the switch is also a
 one-row section of that shared pane.
 
@@ -27,8 +27,8 @@ desktop app's local Code sessions.
 ## Use
 
 - `/quiet on` hides the tool rows, `/quiet off` shows them, `/quiet` alone flips the switch.
-- While it is on, a status line under the prompt says `Clean View: tool rows hidden · /quiet off shows them`, so
-  you do not forget. Each flip also shows a short toast.
+- Each flip shows a short toast. No status line is pinned under the prompt (Claude Code shows plugin
+  status lines with a warning sign, which read like an error).
 - Your choice is saved and comes back in the next session and after a restart.
 - It starts off, until you turn it on (see `start_on` below to change that).
 
@@ -46,7 +46,7 @@ What stays visible while it is on:
 Claude Code shows separate panes as tabs, one at a time. The side-stack mod opens one shared pane so
 several mods can draw in it one under the other.
 
-- side-stack not running: clean-view opens no pane. You use `/quiet` and see the status line.
+- side-stack not running: clean-view opens no pane. You use `/quiet` and see a toast at each flip.
 - side-stack running: the side-stack pane also gets one row, `Clean View [● Clean View: ON]`
   (or `○ Clean View: OFF`); pressing the button flips the switch. The other mods' sections stay
   beneath or above it. The order follows the order Claude Code loads the plugins in, which a mod
@@ -64,7 +64,7 @@ slot; with no slot it goes on top of the sections loaded after it, as before.
 
 After `/clear`, Claude Code goes on under a new session id without a new session start. clean-view
 notices the new id at the next prompt, turn, `/quiet` or draw, reloads the switch from its saved
-value, pins the status line again and re-checks side-stack, so the row stays in the stack and hidden
+value, re-checks side-stack, so the row stays in the stack and hidden
 rows stay hidden. The tests model this (session end with reason `clear`, a new id, no session start)
 on both surfaces; it was found and fixed after a real terminal test, and the fix itself has not been
 retried by hand yet.
@@ -72,7 +72,7 @@ retried by hand yet.
 ## Terminal and desktop app
 
 clean-view works the same in both: the tests draw every row it hides, the side-stack row and its
-button on the `terminal` and `desktop` surfaces, and run `/quiet` and the status line in a session on
+button on the `terminal` and `desktop` surfaces, and run `/quiet` and the toast in a session on
 each. What differs:
 
 - **The "ctrl+b to run in background" pill** exists in the terminal only, so blanking it applies
@@ -81,7 +81,7 @@ each. What differs:
 - **Showing every row again:** the terminal's ctrl+o transcript (and `--verbose`) tells the mod to
   show every row in full. Where a surface does not say whether a row is expanded, the row stays
   hidden while the switch is on, so in the desktop app use `/quiet off` to see the tool rows.
-- **The status line and the toast** are the engine's own calls, not drawn by the mod. The API docs
+- **The toast** is the engine's own calls, not drawn by the mod. The API docs
   do not mark them terminal-only; how the desktop app shows them was not checked by hand.
 
 ## Settings
