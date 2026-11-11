@@ -36,7 +36,9 @@ What stays visible while it is on:
 
 - **Failed tool calls.** A call that ended in an error, with its error, still shows, so you see when
   something went wrong (`show_errors`, on by default). A call you stopped with Esc is hidden like
-  the rest.
+  the rest. A call a hook refused (`PreToolUse:Edit hook error: [Fact-Forcing Gate] ...`) shows as
+  one line, `⚠ Edit blocked by hook: Fact-Forcing Gate`, without the hook's long message; ctrl+o
+  shows it in full.
 - **The full transcript.** ctrl+o (and `--verbose`) still shows every row: the mod hides only the
   compact view.
 - Everything else: your prompts, Claude's answers, questions, permission prompts.

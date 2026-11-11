@@ -276,6 +276,26 @@ for (const surface of SURFACES) {
       expect(await draw($, toolGroup([call({ isErrored: true })]), surface)).not.toContain('GROUP')
     })
 
+    test('a hook refusal shows as one line, its long error is hidden; ctrl+o shows it all', async ($, on) => {
+      const gate = 'PreToolUse:Edit hook error: [Fact-Forcing Gate]\n\nBefore editing /x/lib.py, present these facts:\n\n1. List ALL files...\n\nPresent the facts, then retry the same operation.'
+      await boot($, on, { surface })
+      await quiet($, 'on')
+      expect(await draw($, toolUse({ tool: 'Edit', isErrored: true, output: gate }), surface))
+        .toBe('⚠ Edit blocked by hook: Fact-Forcing Gate')
+      expect(await draw($, toolResult({ tool: 'Edit', isErrored: true, output: gate }), surface)).not.toContain('RESULT')
+      expect(await draw($, toolUse({ tool: 'Edit', isErrored: true, output: gate, isExpanded: true }), surface)).toBe('ROW Edit')
+      // A guard without a [tag]: its first clause, after the "[command hook N]:" prefix.
+      const op = 'Error: PreToolUse:Bash hook error: [command hook 9]: Claude-1Password guard: blocked. printing the whole environment leaks secrets.'
+      expect(await draw($, toolUse({ isErrored: true, output: [{ type: 'text', text: op }] }), surface))
+        .toBe('⚠ Bash blocked by hook: Claude-1Password guard')
+      // A group whose only failure is a hook refusal: one line in place of the group.
+      expect(await draw($, toolGroup([call(), call({ tool_use_id: 'r2', tool: 'Grep', isErrored: true, output: gate })]), surface))
+        .toBe('⚠ Grep blocked by hook: Fact-Forcing Gate')
+      // Any other error keeps its full row.
+      expect(await draw($, toolUse({ isErrored: true, output: 'Exit code 1\nboom' }), surface)).toBe('ROW Bash')
+      expect(await draw($, toolResult({ tool_use_id: 'tu9', isErrored: true, output: 'Exit code 1' }), surface)).toBe('RESULT Bash')
+    })
+
     test('false in /config: failed calls are hidden too', { options: { show_errors: false } }, async ($, on) => {
       await boot($, on, { surface })
       await quiet($, 'on')
