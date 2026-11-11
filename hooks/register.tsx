@@ -236,6 +236,43 @@ function keepsShowing(props: { isExpanded?: boolean; isErrored?: boolean; isInte
   return showErrors() && props.isErrored === true && props.isInterrupted !== true
 }
 
+// ---- Hook refusals: one line, not the hook's whole message --------------------
+
+const HOOK_ERROR = /^(?:Error:\s*)?(?:PreToolUse|PostToolUse|PermissionRequest)(?::\S+)? hook error:\s*([\s\S]*)$/
+const MAX_REASON = 70
+
+/** The text the model read for a failed call, whatever shape the host stored it in. */
+function textOf(output: unknown): string {
+  if (typeof output === 'string') return output
+  if (Array.isArray(output)) return output.map(textOf).join('\n')
+  if (output !== null && typeof output === 'object') {
+    const o = output as Record<string, unknown>
+    for (const k of ['text', 'error', 'content', 'message']) if (k in o) return textOf(o[k])
+  }
+  return ''
+}
+
+/**
+ * When a hook refused the call ("PreToolUse:Edit hook error: [Fact-Forcing Gate] ..."), a short name for
+ * that hook or its reason; undefined for any other output.
+ */
+export function hookRefusal(output: unknown): string | undefined {
+  const m = HOOK_ERROR.exec(textOf(output).trim())
+  if (m === null) return undefined
+  let rest = (m[1] ?? '').replace(/^\[command hook \d+\]:\s*/, '').trim()
+  const tag = /^\[([^\]\n]+)\]/.exec(rest)
+  if (tag !== null) return tag[1]!.trim()
+  rest = (rest.split('\n')[0] ?? '').trim()
+  const cut = rest.search(/[.:;]\s/)
+  const reason = cut > 0 ? rest.slice(0, cut) : rest
+  return reason.length > MAX_REASON ? reason.slice(0, MAX_REASON - 1) + '…' : reason || 'hook'
+}
+
+export const refusalLine = (tool: string, reason: string): string => `⚠ ${tool} blocked by hook: ${reason}`
+
+// The ids of calls drawn as one refusal line: their ToolResult block is hidden.
+const refusedIds = new Set<string>()
+
 // ---- The side-stack slot (protocol v4) ------------------------------------
 
 type El = { type?: unknown; props?: Record<string, unknown>; children?: unknown }
@@ -327,21 +364,47 @@ export const register: Register = (on, options) => {
   // Hide the tool rows.
   on('ui.render', { component: 'ToolUse' }, async ($, e, next) => {
     await scheduleResync($)
-    if (!(await isEnabled($)) || keepsShowing(e.props)) return next(e)
+    if (!(await isEnabled($))) return next(e)
+    if (keepsShowing(e.props)) {
+      // A hook's refusal: one line, not the hook's whole message (ctrl+o still shows it in full).
+      const reason = e.props.isExpanded === true ? undefined : hookRefusal(e.props.output)
+      if (reason === undefined) return next(e)
+      if (refusedIds.size > 500) refusedIds.clear()
+      refusedIds.add(e.props.tool_use_id)
+      const { Text } = $.ui.resolve(e)
+      return <Text color="yellow">{refusalLine(e.props.tool, reason)}</Text>
+    }
     const { Box } = $.ui.resolve(e)
     return <Box display="none" />
   })
   on('ui.render', { component: 'ToolResult' }, async ($, e, next) => {
     await scheduleResync($)
-    if (!(await isEnabled($)) || keepsShowing(e.props)) return next(e)
+    if (!(await isEnabled($))) return next(e)
+    const refused = e.props.isExpanded !== true && e.props.isErrored &&
+      (refusedIds.has(e.props.tool_use_id) || hookRefusal(e.props.output) !== undefined)
+    if (keepsShowing(e.props) && !refused) return next(e)
     const { Box } = $.ui.resolve(e)
     return <Box display="none" />
   })
   on('ui.render', { component: 'ToolGroup' }, async ($, e, next) => {
     await scheduleResync($)
     if (!(await isEnabled($))) return next(e)
-    const failed = e.props.calls.some(call => call.isErrored && !call.isInterrupted)
-    if (keepsShowing({ isExpanded: e.props.isExpanded, isErrored: failed })) return next(e)
+    const failedCalls = e.props.calls.filter(call => call.isErrored && !call.isInterrupted)
+    if (keepsShowing({ isExpanded: e.props.isExpanded, isErrored: failedCalls.length > 0 })) {
+      if (e.props.isExpanded) return next(e)
+      // Only hook refusals failed: one line each in place of the group.
+      const lines = failedCalls.map(call => {
+        const reason = hookRefusal(call.output)
+        return reason === undefined ? undefined : refusalLine(call.tool, reason)
+      })
+      if (lines.some(line => line === undefined)) return next(e)
+      const { Box, Text } = $.ui.resolve(e)
+      return (
+        <Box flexDirection="column">
+          {lines.map((line, i) => <Text key={`refusal-${i}`} color="yellow">{line}</Text>)}
+        </Box>
+      )
+    }
     const { Box } = $.ui.resolve(e)
     return <Box display="none" />
   })
