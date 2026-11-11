@@ -81,8 +81,8 @@ each. What differs:
 - **Showing every row again:** the terminal's ctrl+o transcript (and `--verbose`) tells the mod to
   show every row in full. Where a surface does not say whether a row is expanded, the row stays
   hidden while the switch is on, so in the desktop app use `/quiet off` to see the tool rows.
-- **The toast** is the engine's own calls, not drawn by the mod. The API docs
-  do not mark them terminal-only; how the desktop app shows them was not checked by hand.
+- **The toast** is the engine's own call, not drawn by the mod. The API docs
+  do not mark it terminal-only; how the desktop app shows it was not checked by hand.
 
 ## Settings
 
