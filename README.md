@@ -38,7 +38,10 @@ What stays visible while it is on:
   something went wrong (`show_errors`, on by default). A call you stopped with Esc is hidden like
   the rest. A call a hook refused (`PreToolUse:Edit hook error: [Fact-Forcing Gate] ...`) shows as
   one line, `⚠ Edit blocked by hook: Fact-Forcing Gate`, without the hook's long message; ctrl+o
-  shows it in full.
+  shows it in full. A hook that fails after the tool ran (`PostToolUse`) shows as
+  `⚠ hook error after Edit ran: <reason>`, and the call's result stays visible, since the change is
+  already made. The mod tells a hook's message from the tool's own output by its text only (the host
+  gives no field for it), so a tool error that starts with the same words is drawn the same way.
 - **The full transcript.** ctrl+o (and `--verbose`) still shows every row: the mod hides only the
   compact view.
 - Everything else: your prompts, Claude's answers, questions, permission prompts.
@@ -108,7 +111,7 @@ Both are also in `/config` ("Start with tool rows hidden", "Keep failed tool row
 
 ## Limits
 
-- Built and tested on Claude Code 2.1.319. It needs a version with mods (hooks modules).
+- Built and tested on Claude Code 2.1.319; CI runs the tests on Claude Code 2.1.322 (pinned). It needs a version with mods (hooks modules).
 - The tests draw the rows and the side-stack section on the `terminal` and `desktop` surfaces, with
   and without a stand-in for side-stack. Nobody has tried it by hand in the desktop app or on mobile
   yet.
