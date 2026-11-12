@@ -27,6 +27,14 @@ const stackedAtom = atom({ plugin: 'clean-view', key: 'stacked' } as const, fals
 // for a state that is gone. In state it vanishes with the switch, so the next
 // event loads again.
 const loadedForAtom = atom({ plugin: 'clean-view', key: 'loadedFor' } as const, '')
+// The calls a hook failed, by tool_use_id, as the hooks themselves answered (never read from
+// the output text): `ran` false for a PreToolUse deny (the tool never ran), true for a
+// PostToolUse block (it already ran). In state, so it survives a hot reload; it starts empty
+// in a new process (a resume or restart) and at a /clear, and rows from before then just show
+// as any failed call does.
+type HookFailure = { ran: boolean; reason: string }
+const hookFailuresAtom = atom({ plugin: 'clean-view', key: 'hookFailures' } as const, {} as Record<string, HookFailure>)
+const MAX_HOOK_FAILURES = 200
 // Plugin load order is unknown: look for the host soon after start, and once more a second later.
 const HOST_CHECKS_MS = [100, 1100]
 
@@ -64,11 +72,35 @@ async function settingsFile($: EngineInterface): Promise<string | undefined> {
   return file !== undefined && isAbsolute(file) ? file : undefined
 }
 
-/** First run: writes the starter file with every key null. A file that is there is never rewritten. */
+const isWindowsPath = (p: string): boolean => p.startsWith('\\\\') || /^[A-Za-z]:/.test(p)
+const dirOf = (p: string): string => p.slice(0, Math.max(p.lastIndexOf('/'), p.lastIndexOf('\\')))
+
+// Creates "$1" (in folder "$2") only if it is not there when the shell opens it: `set -C`
+// (noclobber) makes `>` fail on an existing file, as an exclusive create. The paths are
+// argv, never part of the script, and no shell string is built.
+const CREATE_IF_MISSING = 'mkdir -p -- "$2" && set -C && cat > "$1"'
+
+/**
+ * First run: writes the starter file with every key null. A file that is there is never rewritten,
+ * even one another session writes between the check and the write (POSIX: sh noclobber). Windows has
+ * no sh noclobber to lean on, so there, and wherever sh cannot start, the file is written after the
+ * check: two sessions starting at the same moment could both write the same starter text.
+ */
 async function seedSettings($: EngineInterface): Promise<void> {
   try {
     const file = await settingsFile($)
     if (file === undefined || (await $.fs.exists(file))) return
+    if ((await $.env.get('OS')) !== 'Windows_NT' && !isWindowsPath(file)) {
+      let started = true
+      try {
+        // A non-zero exit is fine: most often the file is there already.
+        await $.process.run(['sh', '-c', CREATE_IF_MISSING, 'sh', file, dirOf(file)], { stdin: CONFIG_EXAMPLE, timeoutMs: 5000 })
+      } catch {
+        started = false
+      }
+      if (started) return
+      if (await $.fs.exists(file)) return
+    }
     await $.fs.write(file, CONFIG_EXAMPLE)
   } catch {
     // Never get in the way of starting a session.
@@ -253,20 +285,44 @@ function textOf(output: unknown): string {
 }
 
 /**
- * When a hook failed the call ("PreToolUse:Edit hook error: [Fact-Forcing Gate] ..."), a short name for
- * that hook or its reason, and `ran`: true for a PostToolUse hook, which fails after the tool already ran.
- * Undefined for any other output.
+ * Formatting only, never whether a hook failed: for an output in the shape
+ * "PreToolUse:Edit hook error: [Fact-Forcing Gate] ...", a short name for that hook or its reason.
+ * Undefined for any other output. A tool's own error can look like this, so the decision to fold
+ * a row comes from what the hooks answered (hookFailure), not from here.
  */
-export function hookError(output: unknown): { ran: boolean; reason: string } | undefined {
+export function hookErrorReason(output: unknown): string | undefined {
   const m = HOOK_ERROR.exec(textOf(output).trim())
-  if (m === null) return undefined
-  return { ran: m[1] === 'PostToolUse', reason: shortReason(m[2] ?? '') }
+  return m === null ? undefined : shortReason(m[2] ?? '')
 }
 
-/** A hook that refused the call before it ran: its short reason; undefined otherwise. */
-export function hookRefusal(output: unknown): string | undefined {
-  const h = hookError(output)
-  return h !== undefined && !h.ran ? h.reason : undefined
+async function hookFailures($: EngineInterface): Promise<Record<string, HookFailure>> {
+  try {
+    return await read($, hookFailuresAtom)
+  } catch {
+    return {}
+  }
+}
+
+/** What a hook answered for this call, if one refused (PreToolUse) or blocked after it ran (PostToolUse). */
+function hookFailure(failures: Record<string, HookFailure>, id: unknown, output: unknown): HookFailure | undefined {
+  if (typeof id !== 'string' || !Object.hasOwn(failures, id)) return undefined
+  const f = failures[id]!
+  return { ran: f.ran, reason: hookErrorReason(output) ?? f.reason }
+}
+
+/** Remembers that a hook failed this call; the oldest entries go past MAX_HOOK_FAILURES. */
+async function rememberHookFailure($: EngineInterface, id: string, ran: boolean, text: string): Promise<void> {
+  try {
+    const reason = shortReason(text)
+    await update($, hookFailuresAtom, prev => {
+      const next: Record<string, HookFailure> = { ...prev, [id]: { ran, reason } }
+      const ids = Object.keys(next)
+      for (const old of ids.slice(0, Math.max(0, ids.length - MAX_HOOK_FAILURES))) delete next[old]
+      return next
+    })
+  } catch {
+    // Not remembered: the row shows in full, as any failed call.
+  }
 }
 
 function shortReason(text: string): string {
@@ -282,9 +338,6 @@ function shortReason(text: string): string {
 export const refusalLine = (tool: string, reason: string): string => `⚠ ${tool} blocked by hook: ${reason}`
 // A PostToolUse hook fails after the tool ran: its change is made, so never say "blocked".
 export const afterRunLine = (tool: string, reason: string): string => `⚠ hook error after ${tool} ran: ${reason}`
-
-// The ids of calls drawn as one refusal line: their ToolResult block is hidden.
-const refusedIds = new Set<string>()
 
 // ---- The side-stack slot (protocol v4) ------------------------------------
 
@@ -374,19 +427,29 @@ export const register: Register = (on, options) => {
     return { text: value ? 'Clean View is on: tool rows are hidden.' : 'Clean View is off: tool rows show.' }
   })
 
+  // Which calls a hook failed, from the hooks' own answers. These only watch: the answer passes on as it came.
+  on('classic.PreToolUse', async ($, e, next) => {
+    const r = await next(e)
+    if (r.deny !== undefined) await rememberHookFailure($, e.tool_use_id, false, r.deny)
+    return r
+  }).catch(($, e, next) => next(e))
+  on('classic.PostToolUse', async ($, e, next) => {
+    const r = await next(e)
+    if (r.block !== undefined) await rememberHookFailure($, e.tool_use_id, true, r.block)
+    return r
+  }).catch(($, e, next) => next(e))
+
   // Hide the tool rows.
   on('ui.render', { component: 'ToolUse' }, async ($, e, next) => {
     await scheduleResync($)
     if (!(await isEnabled($))) return next(e)
     if (keepsShowing(e.props)) {
       // A hook's refusal: one line, not the hook's whole message (ctrl+o still shows it in full).
-      const hook = e.props.isExpanded === true ? undefined : hookError(e.props.output)
+      const hook = e.props.isExpanded === true ? undefined : hookFailure(await hookFailures($), e.props.tool_use_id, e.props.output)
       if (hook === undefined) return next(e)
       const { Text } = $.ui.resolve(e)
       // After the tool ran: say so, and leave its result block shown.
       if (hook.ran) return <Text color="yellow">{afterRunLine(e.props.tool, hook.reason)}</Text>
-      if (refusedIds.size > 500) refusedIds.clear()
-      refusedIds.add(e.props.tool_use_id)
       return <Text color="yellow">{refusalLine(e.props.tool, hook.reason)}</Text>
     }
     const { Box } = $.ui.resolve(e)
@@ -395,8 +458,10 @@ export const register: Register = (on, options) => {
   on('ui.render', { component: 'ToolResult' }, async ($, e, next) => {
     await scheduleResync($)
     if (!(await isEnabled($))) return next(e)
-    const refused = e.props.isExpanded !== true && e.props.isErrored &&
-      (refusedIds.has(e.props.tool_use_id) || hookRefusal(e.props.output) !== undefined)
+    const hook = e.props.isExpanded !== true && e.props.isErrored
+      ? hookFailure(await hookFailures($), e.props.tool_use_id, e.props.output)
+      : undefined
+    const refused = hook !== undefined && !hook.ran
     if (keepsShowing(e.props) && !refused) return next(e)
     const { Box } = $.ui.resolve(e)
     return <Box display="none" />
@@ -408,9 +473,10 @@ export const register: Register = (on, options) => {
     if (keepsShowing({ isExpanded: e.props.isExpanded, isErrored: failedCalls.length > 0 })) {
       if (e.props.isExpanded) return next(e)
       // Only hook refusals (before the tool ran) failed: one line each in place of the group.
+      const failures = await hookFailures($)
       const lines = failedCalls.map(call => {
-        const reason = hookRefusal(call.output)
-        return reason === undefined ? undefined : refusalLine(call.tool, reason)
+        const hook = hookFailure(failures, call.tool_use_id, call.output)
+        return hook === undefined || hook.ran ? undefined : refusalLine(call.tool, hook.reason)
       })
       if (lines.some(line => line === undefined)) return next(e)
       const { Box, Text } = $.ui.resolve(e)

@@ -40,8 +40,13 @@ What stays visible while it is on:
   one line, `⚠ Edit blocked by hook: Fact-Forcing Gate`, without the hook's long message; ctrl+o
   shows it in full. A hook that fails after the tool ran (`PostToolUse`) shows as
   `⚠ hook error after Edit ran: <reason>`, and the call's result stays visible, since the change is
-  already made. The mod tells a hook's message from the tool's own output by its text only (the host
-  gives no field for it), so a tool error that starts with the same words is drawn the same way.
+  already made. The mod knows a hook did it from the hook's own answer (a `PreToolUse` deny, a
+  `PostToolUse` block), never from the error text, so a tool whose own error merely starts with
+  the same words keeps its full row. That record lives in the session's memory: it survives a mod
+  reload, but after a resume, a restart or a /clear the rows from before show as any failed call
+  does. A refusal this mod never hears also shows as a plain failed call: one from a managed-settings
+  hook or from a mod that answers before this one without passing the call on, and one from a
+  `PermissionRequest` hook (its event carries no call id).
 - **The full transcript.** ctrl+o (and `--verbose`) still shows every row: the mod hides only the
   compact view.
 - Everything else: your prompts, Claude's answers, questions, permission prompts.
@@ -93,7 +98,11 @@ each. What differs:
 
 The first session creates `~/.config/clean-view/config.json` (or
 `$XDG_CONFIG_HOME/clean-view/config.json`) with every key set to `null`, which means the default.
-Plugin updates never rewrite that file.
+Plugin updates never rewrite that file, and neither does a second session starting at the same
+moment: on macOS and Linux the file is created with `sh` noclobber (`set -C`), so it is written
+only if it is still missing when it is opened. On Windows (or where `sh` cannot start) it is
+written right after an "is it there?" check; two sessions starting in the same instant there could
+both write the same starter text.
 
 | Key | Default | What it does |
 | --- | --- | --- |
