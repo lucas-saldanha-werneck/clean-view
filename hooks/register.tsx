@@ -52,8 +52,8 @@ async function home($: EngineInterface): Promise<string | undefined> {
   return h !== undefined && h !== '' ? h : undefined
 }
 
-// POSIX /x, Windows C:\x or C:/x. A relative path would land in the session's folder.
-const isAbsolute = (p: string): boolean => p.startsWith('/') || /^[A-Za-z]:[\\/]/.test(p)
+// POSIX /x, Windows C:\x or C:/x, or a network share \\server\share. A relative path would land in the session's folder.
+const isAbsolute = (p: string): boolean => p.startsWith('/') || p.startsWith('\\\\') || /^[A-Za-z]:[\\/]/.test(p)
 
 /** $XDG_CONFIG_HOME/clean-view/config.json, else ~/.config/clean-view/config.json. */
 async function settingsFile($: EngineInterface): Promise<string | undefined> {
@@ -238,7 +238,7 @@ function keepsShowing(props: { isExpanded?: boolean; isErrored?: boolean; isInte
 
 // ---- Hook refusals: one line, not the hook's whole message --------------------
 
-const HOOK_ERROR = /^(?:Error:\s*)?(?:PreToolUse|PostToolUse|PermissionRequest)(?::\S+)? hook error:\s*([\s\S]*)$/
+const HOOK_ERROR = /^(?:Error:\s*)?(PreToolUse|PostToolUse|PermissionRequest)(?::\S+)? hook error:\s*([\s\S]*)$/
 const MAX_REASON = 70
 
 /** The text the model read for a failed call, whatever shape the host stored it in. */
@@ -253,13 +253,24 @@ function textOf(output: unknown): string {
 }
 
 /**
- * When a hook refused the call ("PreToolUse:Edit hook error: [Fact-Forcing Gate] ..."), a short name for
- * that hook or its reason; undefined for any other output.
+ * When a hook failed the call ("PreToolUse:Edit hook error: [Fact-Forcing Gate] ..."), a short name for
+ * that hook or its reason, and `ran`: true for a PostToolUse hook, which fails after the tool already ran.
+ * Undefined for any other output.
  */
-export function hookRefusal(output: unknown): string | undefined {
+export function hookError(output: unknown): { ran: boolean; reason: string } | undefined {
   const m = HOOK_ERROR.exec(textOf(output).trim())
   if (m === null) return undefined
-  let rest = (m[1] ?? '').replace(/^\[command hook \d+\]:\s*/, '').trim()
+  return { ran: m[1] === 'PostToolUse', reason: shortReason(m[2] ?? '') }
+}
+
+/** A hook that refused the call before it ran: its short reason; undefined otherwise. */
+export function hookRefusal(output: unknown): string | undefined {
+  const h = hookError(output)
+  return h !== undefined && !h.ran ? h.reason : undefined
+}
+
+function shortReason(text: string): string {
+  let rest = text.replace(/^\[command hook \d+\]:\s*/, '').trim()
   const tag = /^\[([^\]\n]+)\]/.exec(rest)
   if (tag !== null) return tag[1]!.trim()
   rest = (rest.split('\n')[0] ?? '').trim()
@@ -269,6 +280,8 @@ export function hookRefusal(output: unknown): string | undefined {
 }
 
 export const refusalLine = (tool: string, reason: string): string => `⚠ ${tool} blocked by hook: ${reason}`
+// A PostToolUse hook fails after the tool ran: its change is made, so never say "blocked".
+export const afterRunLine = (tool: string, reason: string): string => `⚠ hook error after ${tool} ran: ${reason}`
 
 // The ids of calls drawn as one refusal line: their ToolResult block is hidden.
 const refusedIds = new Set<string>()
@@ -367,12 +380,14 @@ export const register: Register = (on, options) => {
     if (!(await isEnabled($))) return next(e)
     if (keepsShowing(e.props)) {
       // A hook's refusal: one line, not the hook's whole message (ctrl+o still shows it in full).
-      const reason = e.props.isExpanded === true ? undefined : hookRefusal(e.props.output)
-      if (reason === undefined) return next(e)
+      const hook = e.props.isExpanded === true ? undefined : hookError(e.props.output)
+      if (hook === undefined) return next(e)
+      const { Text } = $.ui.resolve(e)
+      // After the tool ran: say so, and leave its result block shown.
+      if (hook.ran) return <Text color="yellow">{afterRunLine(e.props.tool, hook.reason)}</Text>
       if (refusedIds.size > 500) refusedIds.clear()
       refusedIds.add(e.props.tool_use_id)
-      const { Text } = $.ui.resolve(e)
-      return <Text color="yellow">{refusalLine(e.props.tool, reason)}</Text>
+      return <Text color="yellow">{refusalLine(e.props.tool, hook.reason)}</Text>
     }
     const { Box } = $.ui.resolve(e)
     return <Box display="none" />
@@ -392,7 +407,7 @@ export const register: Register = (on, options) => {
     const failedCalls = e.props.calls.filter(call => call.isErrored && !call.isInterrupted)
     if (keepsShowing({ isExpanded: e.props.isExpanded, isErrored: failedCalls.length > 0 })) {
       if (e.props.isExpanded) return next(e)
-      // Only hook refusals failed: one line each in place of the group.
+      // Only hook refusals (before the tool ran) failed: one line each in place of the group.
       const lines = failedCalls.map(call => {
         const reason = hookRefusal(call.output)
         return reason === undefined ? undefined : refusalLine(call.tool, reason)

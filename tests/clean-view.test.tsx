@@ -31,6 +31,8 @@ type Setup = {
   surface?: Surface
   /** side-stack (beneath) leaves an empty slot for this section between two others, as with `/stack order`. */
   slot?: boolean
+  /** Environment variables in place of HOME=/home/u. */
+  env?: Record<string, string>
 }
 
 // A stand-in for the side-stack host. The kit loads an inline plugin from its
@@ -103,7 +105,7 @@ async function stackedFlag($: Engine): Promise<boolean> {
 async function boot($: Engine, on: On, setup: Setup = {}): Promise<World> {
   const files = { ...(setup.files ?? {}) }
   const world: World = { writes: [], store: { ...(setup.store ?? {}) }, statuses: [], toasts: [], clock: mock.clock(on, { now: 1_000_000 }), sessionId: 's1' }
-  mock.env(on, { HOME: '/home/u' })
+  mock.env(on, setup.env ?? { HOME: '/home/u' })
   on('fs.exists', async (_$, e) => ({ value: posix((e as { path: string }).path) in files }) as never)
   on('fs.read', async (_$, e) => {
     const path = posix((e as { path: string }).path)
@@ -294,6 +296,18 @@ for (const surface of SURFACES) {
       // Any other error keeps its full row.
       expect(await draw($, toolUse({ isErrored: true, output: 'Exit code 1\nboom' }), surface)).toBe('ROW Bash')
       expect(await draw($, toolResult({ tool_use_id: 'tu9', isErrored: true, output: 'Exit code 1' }), surface)).toBe('RESULT Bash')
+    })
+
+    test('a PostToolUse hook error: the tool already ran, so the line says so and its result stays', async ($, on) => {
+      const post = 'PostToolUse:Edit hook error: [Formatter] prettier failed on /x/lib.ts'
+      await boot($, on, { surface })
+      await quiet($, 'on')
+      expect(await draw($, toolUse({ tool: 'Edit', isErrored: true, output: post }), surface))
+        .toBe('⚠ hook error after Edit ran: Formatter')
+      expect(await draw($, toolResult({ tool: 'Edit', isErrored: true, output: post }), surface)).toBe('RESULT Edit')
+      // In a group: the whole group shows, nothing is folded into a "blocked" line.
+      expect(await draw($, toolGroup([call(), call({ tool_use_id: 'r2', tool: 'Grep', isErrored: true, output: post })]), surface))
+        .toBe('GROUP 2')
     })
 
     test('false in /config: failed calls are hidden too', { options: { show_errors: false } }, async ($, on) => {
@@ -495,6 +509,12 @@ describe('config file', () => {
     const parsed = JSON.parse(CONFIG_EXAMPLE)
     expect(parsed.start_on).toBe(null)
     expect(parsed.show_errors).toBe(null)
+  })
+
+  test('a Windows home on a network share (UNC path, no HOME) still gets its file', async ($, on) => {
+    const world = await boot($, on, { env: { USERPROFILE: '\\\\srv\\share\\u' } })
+    expect(world.writes.length).toBe(1)
+    expect(world.writes[0]!.path.endsWith('srv/share/u/.config/clean-view/config.json')).toBe(true)
   })
 
   test('a file that is there is never rewritten', async ($, on) => {
