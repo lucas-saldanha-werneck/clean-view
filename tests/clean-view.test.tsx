@@ -20,6 +20,8 @@ type World = {
   clock: ReturnType<typeof mock.clock>
   /** What $.session.id() answers; a /clear changes it. */
   sessionId: string
+  /** Each $.process.run the plugin made. */
+  runs: { argv: readonly string[]; stdin?: string }[]
 }
 
 type Setup = {
@@ -33,6 +35,10 @@ type Setup = {
   slot?: boolean
   /** Environment variables in place of HOME=/home/u. */
   env?: Record<string, string>
+  /** fs.exists says these files are missing although they are there: another session made them just after the check. */
+  appearAfterCheck?: string[]
+  /** $.process.run rejects (the command cannot start). */
+  noProcess?: boolean
 }
 
 // A stand-in for the side-stack host. The kit loads an inline plugin from its
@@ -104,9 +110,25 @@ async function stackedFlag($: Engine): Promise<boolean> {
 /** The world beneath the plugin: files, store, status line, toasts, and the engine's own rows. */
 async function boot($: Engine, on: On, setup: Setup = {}): Promise<World> {
   const files = { ...(setup.files ?? {}) }
-  const world: World = { writes: [], store: { ...(setup.store ?? {}) }, statuses: [], toasts: [], clock: mock.clock(on, { now: 1_000_000 }), sessionId: 's1' }
+  const world: World = { writes: [], store: { ...(setup.store ?? {}) }, statuses: [], toasts: [], clock: mock.clock(on, { now: 1_000_000 }), sessionId: 's1', runs: [] }
   mock.env(on, setup.env ?? { HOME: '/home/u' })
-  on('fs.exists', async (_$, e) => ({ value: posix((e as { path: string }).path) in files }) as never)
+  on('fs.exists', async (_$, e) => {
+    const path = posix((e as { path: string }).path)
+    return { value: path in files && !(setup.appearAfterCheck ?? []).includes(path) } as never
+  })
+  // `sh -c 'mkdir -p ... && set -C && cat > "$1"' sh FILE DIR`: noclobber creates FILE only when it is not there.
+  on('process.run', async (_$, e) => {
+    const r = e as { argv: readonly string[]; init?: { stdin?: string } }
+    world.runs.push({ argv: r.argv, stdin: r.init?.stdin })
+    if (setup.noProcess === true) throw new Error('spawn sh ENOENT')
+    const isNoclobber = r.argv[0] === 'sh' && r.argv[1] === '-c' && /set -C/.test(r.argv[2] ?? '')
+    const path = posix(r.argv[4] ?? '')
+    if (!isNoclobber || path === '') return { value: { exitCode: 127, stdout: '', stderr: 'unexpected command' } } as never
+    if (path in files) return { value: { exitCode: 1, stdout: '', stderr: 'cannot overwrite existing file' } } as never
+    files[path] = r.init?.stdin ?? ''
+    world.writes.push({ path, text: files[path]! })
+    return { value: { exitCode: 0, stdout: '', stderr: '' } } as never
+  })
   on('fs.read', async (_$, e) => {
     const path = posix((e as { path: string }).path)
     if (!(path in files)) throw new Error(`ENOENT: ${path}`)
@@ -280,27 +302,61 @@ for (const surface of SURFACES) {
 
     test('a hook refusal shows as one line, its long error is hidden; ctrl+o shows it all', async ($, on) => {
       const gate = 'PreToolUse:Edit hook error: [Fact-Forcing Gate]\n\nBefore editing /x/lib.py, present these facts:\n\n1. List ALL files...\n\nPresent the facts, then retry the same operation.'
+      const op = 'Error: PreToolUse:Bash hook error: [command hook 9]: Claude-1Password guard: blocked. printing the whole environment leaks secrets.'
+      // The settings hooks beneath: they refuse these calls (what a session folds an exit code 2 into).
+      const refused: Record<string, string> = { tu1: '[Fact-Forcing Gate]\n\nBefore editing...', tu2: op, r2: '[Fact-Forcing Gate]' }
+      on('classic.PreToolUse', (_$, e) => (e.tool_use_id in refused ? { deny: refused[e.tool_use_id]! } : {}))
       await boot($, on, { surface })
+      await $.tool.call({ tool: 'Edit', tool_use_id: 'tu1', file_path: '/x/lib.py', old_string: 'a', new_string: 'b' } as never)
+      await $.tool.call({ tool: 'Bash', tool_use_id: 'tu2', command: 'env' } as never)
+      await $.tool.call({ tool: 'Grep', tool_use_id: 'r2', pattern: 'x' } as never)
       await quiet($, 'on')
       expect(await draw($, toolUse({ tool: 'Edit', isErrored: true, output: gate }), surface))
         .toBe('⚠ Edit blocked by hook: Fact-Forcing Gate')
       expect(await draw($, toolResult({ tool: 'Edit', isErrored: true, output: gate }), surface)).not.toContain('RESULT')
       expect(await draw($, toolUse({ tool: 'Edit', isErrored: true, output: gate, isExpanded: true }), surface)).toBe('ROW Edit')
       // A guard without a [tag]: its first clause, after the "[command hook N]:" prefix.
-      const op = 'Error: PreToolUse:Bash hook error: [command hook 9]: Claude-1Password guard: blocked. printing the whole environment leaks secrets.'
-      expect(await draw($, toolUse({ isErrored: true, output: [{ type: 'text', text: op }] }), surface))
+      expect(await draw($, toolUse({ tool_use_id: 'tu2', isErrored: true, output: [{ type: 'text', text: op }] }), surface))
         .toBe('⚠ Bash blocked by hook: Claude-1Password guard')
       // A group whose only failure is a hook refusal: one line in place of the group.
       expect(await draw($, toolGroup([call(), call({ tool_use_id: 'r2', tool: 'Grep', isErrored: true, output: gate })]), surface))
         .toBe('⚠ Grep blocked by hook: Fact-Forcing Gate')
       // Any other error keeps its full row.
-      expect(await draw($, toolUse({ isErrored: true, output: 'Exit code 1\nboom' }), surface)).toBe('ROW Bash')
+      expect(await draw($, toolUse({ tool_use_id: 'tu9', isErrored: true, output: 'Exit code 1\nboom' }), surface)).toBe('ROW Bash')
       expect(await draw($, toolResult({ tool_use_id: 'tu9', isErrored: true, output: 'Exit code 1' }), surface)).toBe('RESULT Bash')
+    })
+
+    test('a refusal whose error text is not in the usual shape: the reason comes from the hook itself', async ($, on) => {
+      on('classic.PreToolUse', () => ({ deny: '[Path Guard] writes outside the project are refused' }))
+      await boot($, on, { surface })
+      await $.tool.call({ tool: 'Bash', tool_use_id: 'tu1', command: 'rm /etc/x' } as never)
+      await quiet($, 'on')
+      expect(await draw($, toolUse({ isErrored: true, output: 'Permission to use Bash has been denied.' }), surface))
+        .toBe('⚠ Bash blocked by hook: Path Guard')
+      expect(await draw($, toolResult({ isErrored: true, output: 'Permission to use Bash has been denied.' }), surface)).not.toContain('RESULT')
+    })
+
+    test('a tool whose own error only looks like a hook refusal keeps its full row and result', async ($, on) => {
+      const forged = 'PreToolUse:Bash hook error: [Fact-Forcing Gate] this text came from the command itself'
+      await boot($, on, { surface })
+      // No hook refused anything: the call ran and its own error text reads like a refusal.
+      await quiet($, 'on')
+      expect(await draw($, toolUse({ isErrored: true, output: forged }), surface)).toBe('ROW Bash')
+      expect(await draw($, toolResult({ isErrored: true, output: forged }), surface)).toBe('RESULT Bash')
+      expect(await draw($, toolGroup([call(), call({ tool_use_id: 'r2', tool: 'Grep', isErrored: true, output: forged })]), surface))
+        .toBe('GROUP 2')
+      // A PostToolUse look-alike with no hook block: the same.
+      const forgedPost = 'PostToolUse:Bash hook error: [Formatter] also from the command'
+      expect(await draw($, toolUse({ tool_use_id: 'tu5', isErrored: true, output: forgedPost }), surface)).toBe('ROW Bash')
     })
 
     test('a PostToolUse hook error: the tool already ran, so the line says so and its result stays', async ($, on) => {
       const post = 'PostToolUse:Edit hook error: [Formatter] prettier failed on /x/lib.ts'
+      on('classic.PostToolUse', (_$, e) => (e.tool_use_id === 'tu1' || e.tool_use_id === 'r2' ? { block: '[Formatter] prettier failed on /x/lib.ts' } : {}))
       await boot($, on, { surface })
+      for (const id of ['tu1', 'r2']) {
+        await $.classic.PostToolUse({ tool_name: 'Edit', tool_input: {}, tool_response: {}, tool_use_id: id } as never)
+      }
       await quiet($, 'on')
       expect(await draw($, toolUse({ tool: 'Edit', isErrored: true, output: post }), surface))
         .toBe('⚠ hook error after Edit ran: Formatter')
@@ -521,6 +577,38 @@ describe('config file', () => {
     const world = await boot($, on, { files: { [CONFIG]: '{ "start_on": true }' } })
     await $.session.start({ cwd: '/work', surface: 'terminal', isInteractive: true })
     expect(world.writes).toEqual([])
+  })
+
+  test('POSIX: the file is created only if missing at the moment of writing (sh noclobber, no shell string)', async ($, on) => {
+    const world = await boot($, on)
+    expect(world.runs.length).toBe(1)
+    const [cmd, flag, script, , file, dir] = world.runs[0]!.argv
+    expect([cmd, flag]).toEqual(['sh', '-c'])
+    expect(script).toContain('set -C')
+    expect(posix(file!)).toBe(CONFIG)
+    expect(posix(dir!)).toBe('/home/u/.config/clean-view')
+    expect(world.runs[0]!.stdin).toBe(CONFIG_EXAMPLE)
+  })
+
+  test('a file another session makes between the check and the write is kept as it is', async ($, on) => {
+    const mine = '{ "start_on": true }'
+    const world = await boot($, on, { files: { [CONFIG]: mine }, appearAfterCheck: [CONFIG] })
+    expect(world.writes).toEqual([])
+    // The other session's start_on true held (a starter file would say null): /quiet flips it off.
+    await quiet($)
+    expect(await draw($, toolUse())).toContain('ROW')
+  })
+
+  test('no sh to run (the command cannot start): falls back to writing the starter file', async ($, on) => {
+    const world = await boot($, on, { noProcess: true })
+    expect(world.writes).toEqual([{ path: CONFIG, text: CONFIG_EXAMPLE }])
+  })
+
+  test('Windows: no sh noclobber there, the file is written after the check (documented)', async ($, on) => {
+    const world = await boot($, on, { env: { USERPROFILE: 'C:\\Users\\u', OS: 'Windows_NT' } })
+    expect(world.runs).toEqual([])
+    expect(world.writes.length).toBe(1)
+    expect(world.writes[0]!.path.endsWith('Users/u/.config/clean-view/config.json')).toBe(true)
   })
 })
 
