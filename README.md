@@ -51,6 +51,15 @@ What stays visible while it is on:
   compact view.
 - Everything else: your prompts, Claude's answers, questions, permission prompts.
 
+## Examples
+
+- You type `/quiet on`: a toast confirms, and `Bash(...)` and `Read 3 files` rows disappear from the
+  transcript. Your prompts and Claude's answers stay.
+- You type `/quiet` alone: the switch flips from its current state, and the choice is saved for the next
+  session.
+- With the switch on, a tool call that fails still shows, with its error; ctrl+o shows every row.
+- `/quiet off` shows all tool rows again.
+
 ## Works alone or inside side-stack
 
 Claude Code shows separate panes as tabs, one at a time. The side-stack mod opens one shared pane so
