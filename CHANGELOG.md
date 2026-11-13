@@ -4,7 +4,7 @@ Versions are the `version` in `.claude-plugin/plugin.json`. Newest first.
 
 ## 0.3.9 (2026-11-13)
 
-- Add README Examples section and bump patch version.
+- README: add an Examples section.
 
 ## 0.3.8 (2026-11-12)
 
@@ -20,19 +20,19 @@ Versions are the `version` in `.claude-plugin/plugin.json`. Newest first.
 
 ## 0.3.5 (2026-11-11)
 
-- Point to the catalog repo's new name, lucas-tools.
+- Point to the catalog repo's new name, `lucas-tools`.
 
 ## 0.3.4 (2026-11-11)
 
-- Drop the pinned status line.
+- Drop the pinned status line (Claude Code showed it with a warning sign); the toast at each flip stays.
 
 ## 0.3.3 (2026-11-11)
 
-- Rename the marketplace to lucas-tools.
+- Catalog renamed to `lucas-tools`.
 
 ## 0.3.2 (2026-11-09)
 
-- Polish: one-line description, catalog install, README headings.
+- One-line description, catalog install steps, README headings.
 
 ## 0.3.1 (2026-11-09)
 
