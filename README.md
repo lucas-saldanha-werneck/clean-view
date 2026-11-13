@@ -3,6 +3,7 @@
 [![CI](https://github.com/lucas-saldanha-werneck/clean-view/actions/workflows/test.yml/badge.svg)](https://github.com/lucas-saldanha-werneck/clean-view/actions/workflows/test.yml)
 [![License](https://img.shields.io/github/license/lucas-saldanha-werneck/clean-view)](LICENSE)
 [![Version](https://img.shields.io/badge/version-0.3.9-blue)](CHANGELOG.md)
+[![plugin score (proposal)](https://img.shields.io/badge/plugin%20score%20(proposal)-98.8%20A-brightgreen)](https://github.com/NVIDIA/SkillEvaluator/issues/508)
 
 A Claude Code mod with one switch: while it is on, the tool rows in the transcript (`Bash(...)`,
 `Read 3 files`, `Update(...)`, their results and the "ctrl+b to run in background" pill) are hidden,
