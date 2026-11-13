@@ -1,8 +1,22 @@
 # clean-view
 
+[![CI](https://github.com/lucas-saldanha-werneck/clean-view/actions/workflows/test.yml/badge.svg)](https://github.com/lucas-saldanha-werneck/clean-view/actions/workflows/test.yml)
+[![License](https://img.shields.io/github/license/lucas-saldanha-werneck/clean-view)](LICENSE)
+[![Version](https://img.shields.io/badge/version-0.3.9-blue)](CHANGELOG.md)
+
 A Claude Code mod with one switch: while it is on, the tool rows in the transcript (`Bash(...)`,
 `Read 3 files`, `Update(...)`, their results and the "ctrl+b to run in background" pill) are hidden,
 so you read only what you asked and what Claude answered. While it is off, nothing changes.
+
+[![clean-view demo: tap to open the video](https://github.com/user-attachments/assets/16f13a3b-23b5-4b36-a51c-9f06e7351842)](https://lucas-saldanha-werneck.github.io/clean-view/demo.mp4)
+
+<table>
+<tr>
+<td align="center"><img src="https://github.com/user-attachments/assets/409b9a25-269e-40a2-a184-b1f13a1457a9" alt="A terminal with tool rows hidden after /quiet on" width="320"><br>In the terminal</td>
+<td align="center"><img src="https://github.com/user-attachments/assets/9ccf6b61-a741-4b98-a250-1dff823f5e76" alt="The Clean View switch in the desktop app" width="320"><br>In the desktop app</td>
+<td align="center"><img src="https://github.com/user-attachments/assets/d76fc7f4-a9de-42c5-b1d0-82d66a75a3f5" alt="Summary: you read the answers, not the noise" width="320"><br>The idea in short</td>
+</tr>
+</table>
 
 Works alone or inside side-stack: on its own it is a command and a toast; when the
 [side-stack](https://github.com/lucas-saldanha-werneck/side-stack) mod runs, the switch is also a
@@ -153,3 +167,7 @@ private mod had the same name, Clean View; it was never published, so there is n
 MIT. See `LICENSE`.
 
 Built with Claude Code
+
+## Security
+
+See [SECURITY.md](SECURITY.md) for how to report a vulnerability and what this plugin accesses.
