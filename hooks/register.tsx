@@ -1,5 +1,5 @@
 import { atom, read, update } from 'claude-code'
-import type { EngineInterface, Register } from 'claude-code'
+import type { EngineInterface, Register, MatchedHook } from 'claude-code'
 
 import { CONFIG_EXAMPLE } from './config-example'
 
@@ -368,6 +368,53 @@ export function fillSlot(tree: unknown, section: unknown): unknown {
 
 // ---- Hooks ---------------------------------------------------------------
 
+// True when the tree already holds this mod's section: the other of the two
+// registrations below drew it first (a build where both match), so it is drawn once.
+function hasSection(node: unknown): boolean {
+  if (node === null || typeof node !== 'object') return false
+  const el = node as { props?: { key?: unknown }; children?: unknown }
+  if (el.props?.key === SECTION_KEY) return true
+  return Array.isArray(el.children) && el.children.some(hasSection)
+}
+
+// With the side-stack host: a one-row section in its shared pane, then every other section beneath.
+// Claude Code 2.1.327+ hears only a plugin's own drawings unless the matcher
+// names `plugin` ("*" = every plugin's); side-stack opens this pane, so the
+// first matcher is the one that runs there. Older builds know no `plugin` key
+// on a Pane and run the second; each build runs exactly one of the two.
+const drawInStack: MatchedHook<'ui.render', { component: 'Pane'; requestId: typeof STACK_PANE }> = async ($, e, next) => {
+  const below = await next(e)
+  if (hasSection(below)) return below
+  try {
+    await scheduleResync($)
+    const stacked = await isStacked($)
+    // Drawing may not write state: the flag is put right just after, outside the draw.
+    const published = await read($, stackedAtom)
+    if (published !== stacked) $.clock.after(0, () => void syncStacked($).catch(() => undefined))
+    if (!stacked) return below
+    const { Box, Text, Button } = $.ui.resolve(e)
+    const enabled = await isEnabled($)
+    const section = (
+      <Box key={SECTION_KEY} flexDirection="row">
+        <Text bold>Clean View </Text>
+        <Button key="clean-view-toggle" label={enabled ? LABEL_ON : LABEL_OFF} onPress={() => flip($)} />
+      </Box>
+    )
+    // side-stack may have left a slot for this section in the order the person chose.
+    const filled = fillSlot(below, section)
+    if (filled !== undefined) return filled as typeof below
+    return (
+      <Box flexDirection="column">
+        {section}
+        {below}
+      </Box>
+    )
+  } catch {
+    // A broken section must never hide the others.
+    return below
+  }
+}
+
 export const register: Register = (on, options) => {
   optionStartOn = options?.start_on === true
   optionShowErrors = options?.show_errors !== false
@@ -495,36 +542,6 @@ export const register: Register = (on, options) => {
     return next({ ...e, props: { ...e.props, hint: '' } })
   })
 
-  // With the side-stack host: a one-row section in its shared pane, then every other section beneath.
-  on('ui.render', { component: 'Pane', requestId: STACK_PANE }, async ($, e, next) => {
-    const below = await next(e)
-    try {
-      await scheduleResync($)
-      const stacked = await isStacked($)
-      // Drawing may not write state: the flag is put right just after, outside the draw.
-      const published = await read($, stackedAtom)
-      if (published !== stacked) $.clock.after(0, () => void syncStacked($).catch(() => undefined))
-      if (!stacked) return below
-      const { Box, Text, Button } = $.ui.resolve(e)
-      const enabled = await isEnabled($)
-      const section = (
-        <Box key={SECTION_KEY} flexDirection="row">
-          <Text bold>Clean View </Text>
-          <Button key="clean-view-toggle" label={enabled ? LABEL_ON : LABEL_OFF} onPress={() => flip($)} />
-        </Box>
-      )
-      // side-stack may have left a slot for this section in the order the person chose.
-      const filled = fillSlot(below, section)
-      if (filled !== undefined) return filled as typeof below
-      return (
-        <Box flexDirection="column">
-          {section}
-          {below}
-        </Box>
-      )
-    } catch {
-      // A broken section must never hide the others.
-      return below
-    }
-  })
+  on('ui.render', { component: 'Pane', requestId: STACK_PANE, plugin: '*' }, drawInStack)
+  on('ui.render', { component: 'Pane', requestId: STACK_PANE }, drawInStack)
 }
