@@ -1,7 +1,9 @@
 import { atom, read, update } from 'claude-code'
-import type { EngineInterface, Register, MatchedHook } from 'claude-code'
+import type { EngineInterface, Register, ResolveInput } from 'claude-code'
 
 import { CONFIG_EXAMPLE } from './config-example'
+import { HOST_CHECKS_MS, fillSlot as fillSectionSlot, hasSection, heading, hostPresent, lookOf, placeSection } from './stack-guest'
+import type { Look, StackHook } from './stack-guest'
 
 // clean-view: a switch that hides the tool rows of the transcript (ToolUse,
 // ToolResult, ToolGroup) and blanks the "ctrl+b to run in background" pill
@@ -9,13 +11,11 @@ import { CONFIG_EXAMPLE } from './config-example'
 // untouched.
 
 export const STACK_PANE = 'side-stack'
-// side-stack protocol v4: the section's key, and the key of the empty slot side-stack leaves
-// for it when the person has set an order (`/stack order ...`).
+// side-stack protocol v4: the section's key (the protocol itself is in stack-guest.tsx).
 export const SECTION_KEY = 'side-stack:clean-view'
-export const SLOT_KEY = 'side-stack:slot:clean-view'
 export const STORE_KEY = 'enabled'
-export const LABEL_ON = '● Clean View: ON'
-export const LABEL_OFF = '○ Clean View: OFF'
+export const LABEL_ON = '● On'
+export const LABEL_OFF = '○ Off'
 
 const enabledAtom = atom({ plugin: 'clean-view', key: 'enabled' } as const, false)
 // Written by this mod: true while it draws its row into the side-stack pane.
@@ -35,8 +35,6 @@ const loadedForAtom = atom({ plugin: 'clean-view', key: 'loadedFor' } as const, 
 type HookFailure = { ran: boolean; reason: string }
 const hookFailuresAtom = atom({ plugin: 'clean-view', key: 'hookFailures' } as const, {} as Record<string, HookFailure>)
 const MAX_HOOK_FAILURES = 200
-// Plugin load order is unknown: look for the host soon after start, and once more a second later.
-const HOST_CHECKS_MS = [100, 1100]
 
 // Module variables start over on a hot reload; the switch itself lives in
 // $.state (survives a reload) and $.store (survives a restart).
@@ -137,24 +135,6 @@ async function isEnabled($: EngineInterface): Promise<boolean> {
   }
 }
 
-/** The /stack command is listed and side-stack added it (plugin may carry @marketplace). */
-async function hostCommandListed($: EngineInterface): Promise<boolean> {
-  try {
-    const commands = await $.command.list()
-    return commands.some(c => c.name === 'stack' && c.plugin?.split('@')[0] === 'side-stack')
-  } catch {
-    return false
-  }
-}
-
-/**
- * side-stack runs: its /stack command is listed. That alone: its `present` flag is session
- * state, gone after a /clear (new session id, no session.start), so it is not required.
- */
-async function isStacked($: EngineInterface): Promise<boolean> {
-  return hostCommandListed($)
-}
-
 // ---- A /clear: same process, new session id, no session.start -----------
 
 async function currentSessionId($: EngineInterface): Promise<string | undefined> {
@@ -201,7 +181,7 @@ async function scheduleResync($: EngineInterface): Promise<void> {
 
 /** Publishes the stacked flag from a live check. Never called while drawing (a render hook never writes). */
 async function syncStacked($: EngineInterface): Promise<boolean> {
-  const value = await isStacked($)
+  const value = await hostPresent($)
   try {
     if ((await read($, stackedAtom)) !== value) await update($, stackedAtom, () => value)
   } catch {
@@ -211,7 +191,7 @@ async function syncStacked($: EngineInterface): Promise<boolean> {
 }
 
 /** No status line under the prompt: the toast at each flip is enough. Clears one an older version pinned. */
-function showStatus($: EngineInterface, _value: boolean): void {
+function clearStatus($: EngineInterface): void {
   try {
     $.ui.status(undefined)
   } catch {
@@ -227,7 +207,7 @@ async function setEnabled($: EngineInterface, value: boolean): Promise<void> {
   } catch {
     // The choice still holds for this session.
   }
-  showStatus($, value)
+  clearStatus($)
   try {
     $.ui.toast(value ? 'Clean View on: tool rows are hidden.' : 'Clean View off: tool rows show again.')
   } catch {
@@ -243,7 +223,6 @@ async function flip($: EngineInterface): Promise<boolean> {
 }
 
 /** The person's last choice (in $.store) wins; with none yet, start_on decides. */
-/** The last choice from $.store, or the start_on setting when there is none. */
 async function savedChoice($: EngineInterface): Promise<boolean> {
   let saved: unknown
   try {
@@ -257,7 +236,7 @@ async function savedChoice($: EngineInterface): Promise<boolean> {
 async function restore($: EngineInterface): Promise<void> {
   const value = await savedChoice($)
   await update($, enabledAtom, () => value)
-  showStatus($, value)
+  clearStatus($)
 }
 
 /** Whether a row is still shown while the switch is on. */
@@ -339,80 +318,34 @@ export const refusalLine = (tool: string, reason: string): string => `⚠ ${tool
 // A PostToolUse hook fails after the tool ran: its change is made, so never say "blocked".
 export const afterRunLine = (tool: string, reason: string): string => `⚠ hook error after ${tool} ran: ${reason}`
 
-// ---- The side-stack slot (protocol v4) ------------------------------------
+// ---- The side-stack section ----------------------------------------------
 
-type El = { type?: unknown; props?: Record<string, unknown>; children?: unknown }
+/** The tree with side-stack's empty slot for this section replaced by `section`, or undefined with no slot. */
+export const fillSlot = (tree: unknown, section: unknown): unknown => fillSectionSlot(tree, section, 'clean-view')
 
-const isSlot = (node: unknown): boolean =>
-  node !== null && typeof node === 'object' && (node as El).props?.key === SLOT_KEY
-
-/**
- * Returns a copy of `tree` with side-stack's empty slot for this section replaced by
- * `section`, or undefined when the tree holds no such slot (then the section goes on top).
- */
-export function fillSlot(tree: unknown, section: unknown): unknown {
-  if (isSlot(tree)) return section
-  const el = tree as El | null
-  if (el === null || typeof el !== 'object' || !Array.isArray(el.children)) return undefined
-  for (let i = 0; i < el.children.length; i++) {
-    const child: unknown = el.children[i]
-    const swapped = isSlot(child) ? section : fillSlot(child, section)
-    if (swapped !== undefined) {
-      const children = [...el.children]
-      children[i] = swapped
-      return { ...el, children }
-    }
-  }
-  return undefined
-}
-
-// ---- Hooks ---------------------------------------------------------------
-
-// True when the tree already holds this mod's section: the other of the two
-// registrations below drew it first (a build where both match), so it is drawn once.
-function hasSection(node: unknown): boolean {
-  if (node === null || typeof node !== 'object') return false
-  const el = node as { props?: { key?: unknown }; children?: unknown }
-  if (el.props?.key === SECTION_KEY) return true
-  return Array.isArray(el.children) && el.children.some(hasSection)
+/** The section: its heading with the switch as the heading's action. One view for both looks. */
+async function drawSection<E extends ResolveInput>($: EngineInterface, e: E, look: Look) {
+  const { Button } = $.ui.resolve(e)
+  const enabled = await isEnabled($)
+  const toggle = <Button key="clean-view-toggle" label={enabled ? LABEL_ON : LABEL_OFF} onPress={() => flip($)} />
+  return heading($, e, look, 'clean-view', 'Clean View', undefined, toggle)
 }
 
 // With the side-stack host: a one-row section in its shared pane, then every other section beneath.
-// Claude Code 2.1.327+ hears only a plugin's own drawings unless the matcher
-// names `plugin` ("*" = every plugin's); side-stack opens this pane, so the
-// first matcher is the one that runs there. Older builds know no `plugin` key
-// on a Pane and run the second; each build runs exactly one of the two.
-const drawInStack: MatchedHook<'ui.render', { component: 'Pane'; requestId: typeof STACK_PANE }> = async ($, e, next) => {
+async function drawStacked<E extends ResolveInput>($: EngineInterface, e: E, look: Look) {
+  await scheduleResync($)
+  const stacked = await hostPresent($)
+  // Drawing may not write state: the flag is put right just after, outside the draw.
+  const published = await read($, stackedAtom)
+  if (published !== stacked) $.clock.after(0, () => void syncStacked($).catch(() => undefined))
+  if (!stacked) return null
+  return drawSection($, e, look)
+}
+const drawInStack: StackHook = async ($, e, next) => {
   const below = await next(e)
-  if (hasSection(below)) return below
-  try {
-    await scheduleResync($)
-    const stacked = await isStacked($)
-    // Drawing may not write state: the flag is put right just after, outside the draw.
-    const published = await read($, stackedAtom)
-    if (published !== stacked) $.clock.after(0, () => void syncStacked($).catch(() => undefined))
-    if (!stacked) return below
-    const { Box, Text, Button } = $.ui.resolve(e)
-    const enabled = await isEnabled($)
-    const section = (
-      <Box key={SECTION_KEY} flexDirection="row">
-        <Text bold>Clean View </Text>
-        <Button key="clean-view-toggle" label={enabled ? LABEL_ON : LABEL_OFF} onPress={() => flip($)} />
-      </Box>
-    )
-    // side-stack may have left a slot for this section in the order the person chose.
-    const filled = fillSlot(below, section)
-    if (filled !== undefined) return filled as typeof below
-    return (
-      <Box flexDirection="column">
-        {section}
-        {below}
-      </Box>
-    )
-  } catch {
-    // A broken section must never hide the others.
-    return below
-  }
+  if (hasSection(below, 'clean-view')) return below
+  // A broken section never hides the others.
+  return placeSection($, e, below, 'clean-view', await drawStacked($, e, lookOf(e.surface)).catch(() => null))
 }
 
 export const register: Register = (on, options) => {

@@ -2,6 +2,12 @@
 
 Versions are the `version` in `.claude-plugin/plugin.json`. Newest first.
 
+## 0.4.0 (2026-11-18)
+
+- The Stack row is a heading with the switch at its end: `Clean View ──── [● On]` (was `[ ● Clean View: ON ]`).
+- The side-stack guest protocol now comes from `hooks/stack-guest.tsx`, a byte-identical copy of side-stack's (CI checks it).
+- Rendering split by surface: one look for the terminal, one for the apps (desktop, mobile, VS Code). Both draw the same tree for now.
+
 ## 0.3.10 (2026-11-18)
 
 - Draw in the side-stack pane again on Claude Code 2.1.327 and later, which hears only a plugin's own drawings unless the hook names `plugin: '*'`. Older builds keep working (the hook is registered both ways and the section is drawn once).

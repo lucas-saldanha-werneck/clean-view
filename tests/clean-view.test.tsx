@@ -428,7 +428,7 @@ for (const surface of SURFACES) {
     test('with the host: a "Clean View" row with the switch, above the other sections', { plugins: [HOST] }, async ($, on) => {
       await boot($, on, { surface })
       const texts = await paneTexts($, surface)
-      expect(texts[0]).toBe('Clean View ')
+      expect(texts[0]).toBe('Clean View')
       expect(texts.some(one => one.includes('HOST-AND-OTHERS'))).toBe(true)
       expect(texts.findIndex(one => one.includes('HOST-AND-OTHERS')) > 0).toBe(true)
       const ui = await $.ui.mount({
@@ -472,14 +472,14 @@ for (const surface of SURFACES) {
       const world = await boot($, on, { surface })
       await world.clock.advance(1200)
       await quiet($, 'on')
-      expect((await paneTexts($, surface))[0]).toBe('Clean View ')
+      expect((await paneTexts($, surface))[0]).toBe('Clean View')
       await $.session.end({ reason: 'clear', sessionId: 's1', resume: {} } as never)
       world.sessionId = 's2'
       const pinned = world.statuses.length
       await $.prompt.submit({ text: 'hello' } as never)
       await $.turn.start({ text: 'hello', turnId: 't2' })
       const texts = await paneTexts($, surface)
-      expect(texts[0]).toBe('Clean View ')
+      expect(texts[0]).toBe('Clean View')
       expect(texts.some(one => one.includes('HOST-AND-OTHERS'))).toBe(true)
       expect(await stackedFlag($)).toBe(true)
       expect(await draw($, toolUse(), surface)).not.toContain('ROW')
@@ -513,7 +513,7 @@ for (const surface of SURFACES) {
     test('the /stack command alone (no present flag) counts as side-stack running', { plugins: [CMD_ONLY_HOST, READER] }, async ($, on) => {
       const world = await boot($, on, { surface })
       await world.clock.advance(1200)
-      expect((await paneTexts($, surface))[0]).toBe('Clean View ')
+      expect((await paneTexts($, surface))[0]).toBe('Clean View')
       expect(await stackedFlag($)).toBe(true)
     })
 
@@ -521,7 +521,7 @@ for (const surface of SURFACES) {
       await boot($, on, { surface, slot: true })
       const texts = await paneTexts($, surface)
       const first = texts.indexOf('FIRST-SECTION')
-      const mine = texts.indexOf('Clean View ')
+      const mine = texts.indexOf('Clean View')
       const last = texts.indexOf('LAST-SECTION')
       expect(first).toBe(0)
       expect(mine > first).toBe(true)
@@ -543,7 +543,7 @@ for (const surface of SURFACES) {
     test('no slot from side-stack: the section, keyed side-stack:clean-view, goes on top as before', { plugins: [HOST, READER] }, async ($, on) => {
       await boot($, on, { surface })
       const texts = await paneTexts($, surface)
-      expect(texts[0]).toBe('Clean View ')
+      expect(texts[0]).toBe('Clean View')
       expect(texts.indexOf('HOST-AND-OTHERS') > 0).toBe(true)
       const ui = await $.ui.mount({
         plugin: 'clean-view',
@@ -658,3 +658,22 @@ for (const surface of SURFACES) {
     expect(world.statuses.at(-1)).toBe(undefined)
   })
 }
+
+// One render path for the terminal and one for the apps (stack-guest.tsx, lookOf):
+// today both draw the same section, and each must draw.
+test('the Stack section draws on the terminal and on the desktop app', { plugins: [HOST] }, async ($, on) => {
+  await boot($, on, { surface: 'terminal' })
+  for (const surface of ['terminal', 'desktop'] as const) {
+    const ui = await $.ui.mount({
+      plugin: 'clean-view',
+      surface,
+      component: 'Pane',
+      requestId: 'side-stack',
+      props: { title: 'Stack', isFocused: false, bodyColumns: 44, placement: 'dock' } as never,
+    })
+    expect(await ui.find({ key: SECTION_KEY } as never)).toBeDefined()
+    expect(await ui.find({ type: 'Text', text: 'Clean View' })).toBeDefined()
+    expect(JSON.stringify(await ui.find({ key: 'clean-view-toggle' } as never))).toContain(LABEL_OFF)
+    await ui.unmount()
+  }
+})
