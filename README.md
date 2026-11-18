@@ -2,7 +2,7 @@
 
 [![CI](https://github.com/lucas-saldanha-werneck/clean-view/actions/workflows/test.yml/badge.svg)](https://github.com/lucas-saldanha-werneck/clean-view/actions/workflows/test.yml)
 [![License](https://img.shields.io/github/license/lucas-saldanha-werneck/clean-view)](LICENSE)
-[![Version](https://img.shields.io/badge/version-0.3.9-blue)](CHANGELOG.md)
+[![Version](https://img.shields.io/badge/version-0.4.0-blue)](CHANGELOG.md)
 [![plugin score (proposal)](https://img.shields.io/badge/plugin%20score%20(proposal)-98.8%20A-brightgreen)](https://github.com/NVIDIA/SkillEvaluator/issues/508)
 
 A Claude Code mod with one switch: while it is on, the tool rows in the transcript (`Bash(...)`,
@@ -81,8 +81,8 @@ Claude Code shows separate panes as tabs, one at a time. The side-stack mod open
 several mods can draw in it one under the other.
 
 - side-stack not running: clean-view opens no pane. You use `/quiet` and see a toast at each flip.
-- side-stack running: the side-stack pane also gets one row, `Clean View [● Clean View: ON]`
-  (or `○ Clean View: OFF`); pressing the button flips the switch. The other mods' sections stay
+- side-stack running: the side-stack pane also gets one row, `Clean View ──── [● On]`
+  (or `○ Off`); pressing the button flips the switch. The other mods' sections stay
   beneath or above it. The order follows the order Claude Code loads the plugins in, which a mod
   cannot choose.
 
@@ -105,13 +105,20 @@ retried by hand yet.
 
 ## Terminal and desktop app
 
+**Terminal look and app look.** The drawing is split by surface: one look for the terminal, one for
+the apps (desktop, mobile, VS Code). Today both draw the same tree. Where each look lives, and how to
+change one without the other: side-stack's README,
+[Shared guest code, and where the terminal and app looks live](https://github.com/lucas-saldanha-werneck/side-stack#shared-guest-code-and-where-the-terminal-and-app-looks-live).
+This repo's `hooks/stack-guest.tsx` is a byte-identical copy of side-stack's (CI checks it): change
+it there first.
+
 clean-view works the same in both: the tests draw every row it hides, the side-stack row and its
 button on the `terminal` and `desktop` surfaces, and run `/quiet` and the toast in a session on
 each. What differs:
 
 - **The "ctrl+b to run in background" pill** exists in the terminal only, so blanking it applies
   there. The desktop app has no such pill; nothing replaces it and nothing is needed.
-- **The button** is `[ ● Clean View: ON ]` in the terminal and a native button in the desktop app.
+- **The button** is `[ ● On ]` in the terminal and a native button in the desktop app.
 - **Showing every row again:** the terminal's ctrl+o transcript (and `--verbose`) tells the mod to
   show every row in full. Where a surface does not say whether a row is expanded, the row stays
   hidden while the switch is on, so in the desktop app use `/quiet off` to see the tool rows.
